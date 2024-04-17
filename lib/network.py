@@ -17,40 +17,47 @@ from memory_profiler import profile
 from torchsummary import summary
 import pandas as pd
 import math
-from torchsummary import summary
-#update逻辑 先通过模型+BF判断对错，然后再通过模型判断数据，插入布隆过滤器
+from bayes_opt import BayesianOptimization
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning)
+
+
+# update逻辑 先通过模型+BF判断对错，然后再通过模型判断数据，插入布隆过滤器
 
 
 class FPRloss(nn.Module):
 
-    def __init__(self):
+    def __init__(self, all_memory, all_record):
         super(FPRloss, self).__init__()
+        self.all_memory = all_memory
+        self.all_record = all_record
 
-    def forward(self, input, target,network):
-        input=get_result(input)
-        num_item=len(input)
-        FPR = torch.sum((input == 1) & (target == 0)).item()/num_item
-        FNR = torch.sum((input == 0) & (target == 1)).item()/num_item
-        if FNR==0:
-            FNR=0.00001
-        memory_cost=getModelSize(network)
-        memory_cost=(all_memory-memory_cost)*8
-        bf_FPR=pow(math.e,-((memory_cost*math.log(2)*math.log(2))/(all_record*FNR)))
-        
+    def forward(self, input, target, network):
+        input = get_result(input)
+        num_item = len(input)
+        FPR = torch.sum((input == 1) & (target == 0)).item() / num_item
+        FNR = torch.sum((input == 0) & (target == 1)).item() / num_item
+        if FNR == 0:
+            FNR = 0.00001
+        memory_cost = getModelSize(network)
+        memory_cost = (self.all_memory - memory_cost) * 8
+        bf_FPR = pow(math.e, -((memory_cost * math.log(2) * math.log(2)) / (self.all_record * FNR)))
 
-        loss = FNR*bf_FPR+FPR
-        loss_tensor = torch.tensor(loss, dtype=torch.float32, requires_grad=True)  # 将损失值转换为张量
-        if(loss>1):
-            print('FNR:',FNR)
-            print('FPR:',FPR)
-            print('bf_FPR:',bf_FPR)
-        #print(loss)
-        return loss_tensor
+        loss = FNR * bf_FPR + FPR
+        # loss_tensor = torch.tensor(loss, dtype=torch.float32, requires_grad=True)  # 将损失值转换为张量
+        if (loss > 1):
+            print('FNR:', FNR)
+            print('FPR:', FPR)
+            print('bf_FPR:', bf_FPR)
+        # print(loss)
+        return loss
+
 
 class SimpleNetwork(nn.Module):
     def __init__(self, structure, input_dim, output_dim):
         self.device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-        super(SimpleNetwork, self).__init__() 
+        super(SimpleNetwork, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.structure = structure
@@ -61,7 +68,7 @@ class SimpleNetwork(nn.Module):
         prev_layer_dim = self.input_dim
         for layer_dim in self.structure:
             layers.append(nn.Linear(prev_layer_dim, layer_dim))
-            layers.append(nn.Sigmoid()) # 在隐藏层应用 Sigmoid 激活函数
+            layers.append(nn.Sigmoid())  # 在隐藏层应用 Sigmoid 激活函数
             prev_layer_dim = layer_dim
         # 在输出层应用 Sigmoid 激活函数
         layers.append(nn.Linear(prev_layer_dim, self.output_dim))
@@ -70,9 +77,10 @@ class SimpleNetwork(nn.Module):
 
     def forward(self, x):
         return self.layers(x)
-    
+
     def get_structure(self):
         return self.structure
+
 
 # 根据阈值获得结果
 def get_result(outputs, stand=0.5):
@@ -96,15 +104,14 @@ def getModelSize(model):
         buffer_size += buffer.nelement() * buffer.element_size()
         buffer_sum += buffer.nelement()
     all_size_bit = (param_size + buffer_size)
-    all_size= all_size_bit/ 1024 / 1024
-    #print('模型总大小为：{:.3f}MB'.format(all_size))
+    all_size = all_size_bit / 1024 / 1024
+    # print('模型总大小为：{:.3f}MB'.format(all_size))
     return all_size_bit
 
-    
-def train(model,train_loader,val_loader,num_epochs = 100):
-    
-    criterion = nn.BCELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss(), output_acc=True):
+    criterion = loss_fun
+    optimizer = optim.Adam(model.parameters(), lr=0.005)
     device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
     for epoch in range(num_epochs):
         model.train()  # 设置模型为训练模式
@@ -138,7 +145,7 @@ def train(model,train_loader,val_loader,num_epochs = 100):
             optimizer.zero_grad()
             outputs = model(inputs)
             # predicted = torch.round(outputs).int()
-            #print("output",outputs)
+            # print("output",outputs)
             predicted = get_result(outputs)
             total_samples += targets.size(0)
             targets = torch.tensor(targets, dtype=torch.int64)
@@ -153,7 +160,6 @@ def train(model,train_loader,val_loader,num_epochs = 100):
             train_false_data_cnt += (targets == 0).sum().item()
             train_true_data_cnt += (targets == 1).sum().item()
 
-        
         train_accuracy = total_correct / total_samples
         train_FPR = train_false_positives / train_false_data_cnt
         train_FNR = train_false_negatives / train_true_data_cnt
@@ -191,11 +197,60 @@ def train(model,train_loader,val_loader,num_epochs = 100):
         val_loss_list.append(val_running_loss)
         val_FNR_list.append(val_FNR)
         val_FPR_list.append(val_FPR)
+        if output_acc:
+            print(
+                f"Epoch {epoch + 1} - Loss: {running_loss:.4f} - Train Accuracy: {train_accuracy:.4f} - Val Accuracy: {val_accuracy:.4f}")
+            print(
+                f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} - val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
 
-        print(
-            f"Epoch {epoch + 1} - Loss: {running_loss:.4f} - Train Accuracy: {train_accuracy:.4f} - Val Accuracy: {val_accuracy:.4f}")
-        print(
-            f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} - val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
+    return train_accuracy
 
-def validate(model):
+
+def validate(model,word_dict,region_dict):
     pass
+
+
+
+
+
+
+
+
+class Bayes_Optimizer:
+    def __init__(self, input_dim, output_dim, train_loader, val_loader, learning_rate=0.005,
+                 hidden_units=(8, 512)):
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.lr = learning_rate
+        self.hidden_units = hidden_units
+        self.best_model = None
+
+    def target_function(self, num_hidden_units):
+        # 确保 num_hidden_units 是整数
+        num_hidden_units = int(num_hidden_units)
+
+        # 初始化模型
+        model = SimpleNetwork([num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
+        optimizer = optim.Adam(model.parameters(), lr=self.lr)
+
+        # 训练模型
+        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=1,
+                     loss_fun=nn.BCELoss(), output_acc=False)
+
+    def optimize(self):
+        optimizer = BayesianOptimization(
+            f=self.target_function,
+            pbounds={'num_hidden_units': self.hidden_units},
+            random_state=42,
+        )
+        optimizer.maximize(n_iter=1)
+
+        best_params = optimizer.max['params']
+        best_num_hidden_units = int(best_params['num_hidden_units'])
+
+        # 使用最佳参数重新训练模型
+        best_model = SimpleNetwork([best_num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
+        print(optimizer.max)
+        return best_model
