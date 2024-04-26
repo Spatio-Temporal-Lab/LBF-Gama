@@ -1,57 +1,20 @@
+import torch.optim as optim
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import random
-import torch.optim as optim
-from torch.nn import TransformerEncoderLayer, TransformerEncoder, LayerNorm
-from torch.nn.init import xavier_uniform_
-from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import train_test_split
-import torch
-import torch.nn as nn
-import csv
 import numpy as np
-from sklearn.model_selection import train_test_split
 from datetime import datetime
-from memory_profiler import profile
-from torchsummary import summary
 import pandas as pd
-import math
 from bayes_opt import BayesianOptimization
 import warnings
+import pickle
+from spyder.utils.external.pybloom_pyqt import BloomFilter
+from lib.data_processing import cal_region_id
+import os
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
 # update逻辑 先通过模型+BF判断对错，然后再通过模型判断数据，插入布隆过滤器
-
-
-class FPRloss(nn.Module):
-
-    def __init__(self, all_memory, all_record):
-        super(FPRloss, self).__init__()
-        self.all_memory = all_memory
-        self.all_record = all_record
-
-    def forward(self, input, target, network):
-        input = get_result(input)
-        num_item = len(input)
-        FPR = torch.sum((input == 1) & (target == 0)).item() / num_item
-        FNR = torch.sum((input == 0) & (target == 1)).item() / num_item
-        if FNR == 0:
-            FNR = 0.00001
-        memory_cost = getModelSize(network)
-        memory_cost = (self.all_memory - memory_cost) * 8
-        bf_FPR = pow(math.e, -((memory_cost * math.log(2) * math.log(2)) / (self.all_record * FNR)))
-
-        loss = FNR * bf_FPR + FPR
-        # loss_tensor = torch.tensor(loss, dtype=torch.float32, requires_grad=True)  # 将损失值转换为张量
-        if (loss > 1):
-            print('FNR:', FNR)
-            print('FPR:', FPR)
-            print('bf_FPR:', bf_FPR)
-        # print(loss)
-        return loss
 
 
 class SimpleNetwork(nn.Module):
@@ -92,7 +55,7 @@ def get_result(outputs, stand=0.5):
     return predicted.int()
 
 
-def getModelSize(model):
+def get_model_size(model):
     param_size = 0
     param_sum = 0
     for param in model.parameters():
@@ -104,7 +67,7 @@ def getModelSize(model):
         buffer_size += buffer.nelement() * buffer.element_size()
         buffer_sum += buffer.nelement()
     all_size_bit = (param_size + buffer_size)
-    all_size = all_size_bit / 1024 / 1024
+    # all_size = all_size_bit / 1024 / 1024
     # print('模型总大小为：{:.3f}MB'.format(all_size))
     return all_size_bit
 
@@ -113,6 +76,7 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
     criterion = loss_fun
     optimizer = optim.Adam(model.parameters(), lr=0.005)
     device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
+    val_accuracy = torch.rand(1) * 0.1
     for epoch in range(num_epochs):
         model.train()  # 设置模型为训练模式
         running_loss = 0.0
@@ -126,8 +90,7 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
         train_true_data_cnt = 0
         validation_false_data_cnt = 0
         validation_true_data_cnt = 0
-        sum_neg = 0
-        cnt = 0
+        val_accuracy = 0
         train_acc_list = []
         train_loss_list = []
         train_FPR_list = []
@@ -138,8 +101,8 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
         val_FNR_list = []
 
         for inputs, targets in train_loader:
-            inputs = inputs.to(device)  ##******#
-            targets = targets.to(device)  # ******#
+            inputs = inputs.to(device)
+            targets = targets.to(device)
             targets = torch.tensor(targets)
             targets = torch.tensor(targets, dtype=torch.int32)
             optimizer.zero_grad()
@@ -149,12 +112,15 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
             predicted = get_result(outputs)
             total_samples += targets.size(0)
             targets = torch.tensor(targets, dtype=torch.int64)
-            total_correct += (predicted == targets).sum().item()
+
             targets_float = targets.float()
-            loss = criterion(outputs, targets_float)
+            loss = criterion(outputs, targets_float, val_accuracy)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
+            targets = targets.int()
+            predicted = predicted.int()
+            total_correct += (predicted == targets).sum().item()
             train_false_positives += ((predicted == 1) & (targets == 0)).sum().item()
             train_false_negatives += ((predicted == 0) & (targets == 1)).sum().item()
             train_false_data_cnt += (targets == 0).sum().item()
@@ -175,16 +141,18 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
 
         with torch.no_grad():
             for inputs, targets in val_loader:
-                inputs = inputs.to(device)  ##******#
-                targets = targets.to(device)  # ******#
+                inputs = inputs.to(device)
+                targets = targets.to(device)
                 targets = torch.tensor(targets)
                 outputs = model(inputs)
                 # predicted = torch.round(outputs).int()
                 predicted = get_result(outputs)
-                loss = criterion(outputs, targets.float())
+                loss = criterion(outputs, targets.float(), val_accuracy)
                 val_running_loss += loss.item()
                 val_samples += targets.size(0)
-                val_correct += (predicted == targets).sum().item()
+                targets = targets.int()
+                predicted = predicted.int()
+                val_correct += (predicted.int() == targets.int()).sum().item()
                 val_false_positives += ((predicted == 1) & (targets == 0)).sum().item()
                 val_false_negatives += ((predicted == 0) & (targets == 1)).sum().item()
                 validation_false_data_cnt += (targets == 0).sum().item()
@@ -199,21 +167,220 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
         val_FPR_list.append(val_FPR)
         if output_acc:
             print(
-                f"Epoch {epoch + 1} - Loss: {running_loss:.4f} - Train Accuracy: {train_accuracy:.4f} - Val Accuracy: {val_accuracy:.4f}")
+                f"Epoch {epoch + 1} - Loss: {running_loss:.4f} - "
+                f"Train Accuracy: {train_accuracy:.4f} - Val Accuracy: {val_accuracy:.4f}")
             print(
-                f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} - val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
+                f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} "
+                f"- val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
 
-    return train_accuracy
-
-
-def validate(model,word_dict,region_dict):
-    pass
+    return val_accuracy
 
 
+def region_mapping(d, region_dict):
+    region_id = cal_region_id(lat=d['lat'], lon=d['lon'])
+    if region_id in region_dict:
+        return region_dict[region_id]
+    else:
+        return np.zeros(24)
 
 
+# 将时间戳处理成时间桶
+def time_embedding(time_str):
+    time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+    # 生成时间的one-hot向量
+    time_bucket = time.hour * 2 + time.minute // 30
+    time_vec = np.eye(48)[time_bucket]
+    return time_vec
 
 
+# keywords embedding
+# cnt=0
+def keywords_embedding(keyword, word_dict):
+    if keyword in word_dict:
+        return word_dict[keyword]
+    else:
+        # cnt用于记录没找到对应的关键字的
+        # cnt+=1
+        # print(cnt)
+        return np.zeros(300)
+
+
+def insert(ck):
+    time = ck['timestamp']
+    keywords = ck['keywords']
+    lat = ck['lat']
+    lon = ck['lon']
+    time = datetime.strptime(time, '%Y-%m-%d %H:%M:%S')
+    time = str(time.year) + str(time.month).zfill(2) + str(time.day).zfill(2) + str(time.hour).zfill(2) + str(
+        time.minute).zfill(2)
+    # print(time)
+    region_id = str(cal_region_id(lat, lon)).zfill(8)
+    try:
+        keywords = keywords.replace(" ", "")
+    except AttributeError:
+        keywords = ''
+    return time + region_id + keywords
+
+
+def to_embedding(d):
+    region = np.array(d['region'])
+    time = np.array(d['timestamp'])
+    keywords = np.array(d['keywords'])
+    embedding = torch.tensor(np.concatenate((time, region, keywords)), dtype=torch.float32)
+    # print(embedding.shape)
+    return embedding
+
+
+def validate(model, word_dict, region_dict, dataset):
+    device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
+    # 逐块读取validation_set
+    chunk_size = 10000
+    chunk_no = 0
+    threshold = 0.5
+    predict_true = 0
+    predict_false = 0
+    for chunk in pd.read_csv('dataset/' + dataset + '/vali_data.csv', chunksize=chunk_size):
+        # chunk.drop(columns='is_in',inplace=True)
+        # 处理一个用于插入布隆过滤器的dataframe:data_insert
+        data = chunk
+
+        data['keywords'] = data['keywords'].str.split(' ')
+        data = data.explode('keywords')
+        data = data.reset_index(drop=True)
+        data['keywords'] = data['keywords'].apply(str.lower)
+
+        data_insert = pd.DataFrame()
+        data_insert['insert'] = data.apply(insert, axis=1)
+
+        # region embedding
+        data['region'] = data.apply(region_mapping, axis=1, args=(region_dict,))
+        data.drop(columns=['lat', 'lon'], inplace=True)
+
+        # time embedding
+        data['timestamp'] = data['timestamp'].apply(time_embedding)
+
+        # keywords embedding
+        data['keywords'] = data['keywords'].apply(keywords_embedding, args=(word_dict,))
+
+        # 生成一个用于神经网络输入的dataframe:embedding
+        embedding = pd.DataFrame()
+        embedding['embedding'] = data.apply(to_embedding, axis=1)
+
+        # 清理内存
+        del data
+        del chunk
+
+        with torch.no_grad():  # 不计算梯度
+            output_tensor = embedding['embedding'].apply(lambda row: model(row.to(device)).cpu().numpy())
+            binary_output = np.where(output_tensor > threshold, 1, 0)
+            num_ones = np.count_nonzero(binary_output)
+            num_zeros = len(binary_output) - num_ones
+        zero_indices = np.where(binary_output == 0)[0]
+        data_insert = data_insert.iloc[zero_indices]
+        csv_filename = 'insert_tweet_data.csv'
+
+        # 检查文件是否存在，如果不存在则创建它
+        if not os.path.exists(csv_filename):
+            # 创建一个空的DataFrame，并保存到CSV文件中
+            pd.DataFrame(columns=['insert']).to_csv(csv_filename, index=False)
+        data_insert.to_csv(csv_filename, mode='a', header=not pd.read_csv(csv_filename).index.any(), index=False)
+        predict_true = predict_true + num_ones
+        predict_false = num_zeros + predict_false
+        chunk_no += 1
+        print("预测到块:", chunk_no)
+        print("大于阈值的个数:", predict_true)
+        print("小于等于阈值的个数:", predict_false)
+
+
+def create_bloom_filter(dataset, bf_name):
+    data = pd.read_csv("insert_data_" + dataset + ".csv")
+    data = data['insert']
+    bloom_filter = BloomFilter(capacity=2725000, error_rate=0.0006)
+    for i in range(1, len(data) - 1):
+        bloom_filter.add(data[i])
+
+    with open(bf_name, 'wb') as bf_file:
+        pickle.dump(bloom_filter, bf_file)
+
+    print("布隆过滤器已保存")
+
+
+def query(model, word_dict, region_dict, dataset, bloom_filter):
+    chunk_size = 10000
+    chunk_no = 0
+    threshold = 0.5
+    acc = 0
+    fpr = 0
+    fnr = 0
+    true_sample = 0
+    false_sample = 0
+
+    device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
+
+    for chunk in pd.read_csv(dataset + '_data\\query_set.csv', chunksize=chunk_size):
+
+        # 处理一个用于插入布隆过滤器的dataframe:data_insert
+        data = chunk
+
+        data['keywords'] = data['keywords'].str.split(' ')
+        data = data.explode('keywords')
+        data = data.reset_index(drop=True)
+        data['keywords'] = data['keywords'].apply(str.lower)
+
+        label = data['is_in']
+        true_sample = (label == 1).sum()
+        false_sample = (label == 0).sum()
+
+        data_insert = pd.DataFrame()
+        data_insert = data.apply(insert, axis=1)
+
+        # region embedding
+        data['region'] = data.apply(region_mapping, axis=1, args=(region_dict,))
+        data.drop(columns=['lat', 'lon'], inplace=True)
+
+        # time embedding
+        data['time'] = data['time'].apply(time_embedding)
+
+        # keywords embedding
+        data['keywords'] = data['keywords'].apply(keywords_embedding, args=(word_dict,))
+
+        # 生成一个用于神经网络输入的dataframe:embedding
+        embedding = pd.DataFrame()
+        embedding['embedding'] = data.apply(to_embedding, axis=1)
+
+        # 清理内存
+        del data
+        del chunk
+
+        with torch.no_grad():  # 不计算梯度
+            output_tensor = embedding.apply(lambda row: model(row['embedding'].to(device)).cpu().numpy(), axis=1)
+            binary_output = np.where(output_tensor > threshold, 1, 0)
+
+        # print(len(binary_output))
+        for i in range(len(binary_output)):
+            if binary_output[i] == 1:
+                if label[i] == 1:
+                    acc = acc + 1
+                elif label[i] == 0:
+                    fpr = fpr + 1
+            else:
+                if data_insert[i] in bloom_filter:
+                    if label[i] == 1:
+                        acc = acc + 1
+                    elif label[i] == 0:
+                        fpr = fpr + 1
+                else:
+                    if label[i] == 1:
+                        fnr = fnr + 1
+                        print(i, data_insert[i])
+                    elif label[i] == 0:
+                        acc = acc + 1
+
+        chunk_no += 1
+        print("预测到块:", chunk_no)
+        print("acc_rate:", acc)
+        print("fpr:", fpr / false_sample)
+        print("fnr:", fnr / true_sample)
 
 
 class Bayes_Optimizer:
@@ -233,10 +400,9 @@ class Bayes_Optimizer:
 
         # 初始化模型
         model = SimpleNetwork([num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
-        optimizer = optim.Adam(model.parameters(), lr=self.lr)
 
         # 训练模型
-        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=1,
+        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10,
                      loss_fun=nn.BCELoss(), output_acc=False)
 
     def optimize(self):
@@ -245,7 +411,7 @@ class Bayes_Optimizer:
             pbounds={'num_hidden_units': self.hidden_units},
             random_state=42,
         )
-        optimizer.maximize(n_iter=1)
+        optimizer.maximize(n_iter=10)
 
         best_params = optimizer.max['params']
         best_num_hidden_units = int(best_params['num_hidden_units'])

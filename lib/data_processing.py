@@ -22,29 +22,22 @@ class CustomDataset(Dataset):
         return x, y
 
 
-def cal_region_id(lon, lat, x_min=27, x_max=54, y_min=-120, y_max=-74, oneKilo=0.009):
-    lat = float(lat)
-    lon = float(lon)
-    latTotal = math.ceil((x_max - x_min) / oneKilo)  # 纬度方向有多少个格子
-    square_num = 0
+def cal_region_id(lon, lat, x_min=27, x_max=54, y_min=-120, y_max=-74, one_kilo=0.009):
+    lon, lat = float(lon), float(lat)
+    lonTotal = math.ceil((y_max - y_min) / one_kilo)
     if x_min <= lat <= x_max and y_min <= lon <= y_max:
-        x_num = math.ceil((lat - x_min) / oneKilo)
-        y_num = math.ceil((lon - y_min) / oneKilo)
-        # print("x_num ", x_num, "y_num ", y_num)
-
-        if x_num == 0:
-            if y_num == 0:
-                square_num = 1
-            else:
-                square_num = (y_num - 1) * latTotal + 1
-        else:
-            square_num = (y_num - 1) * latTotal + x_num
-    return square_num
+        x_num = math.ceil((lat - x_min) / one_kilo)
+        y_num = math.ceil((lon - y_min) / one_kilo)
+        square_num = x_num * lonTotal + y_num
+        # print(square_num)
+        return square_num
+    else:
+        return None
 
 
 def loading_embedding(dataset):
     # 加载区域的编码信息
-    data = pd.read_csv('embedding\\region_embedding.csv')
+    data = pd.read_csv('embedding\\region_embedding_new.csv')
     data['Merged_List'] = np.array(data[['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14',
                                          '15', '16', '17', '18', '19', '20', '21', '22', '23']].apply(
         lambda x: x.tolist(), axis=1))
@@ -57,7 +50,7 @@ def loading_embedding(dataset):
 
     # 读取训练的关键字embedding
     word_dict = {}
-    with open('embedding\\all_keywords_embedding_' + dataset + '.csv', newline='', encoding='utf-8') as csvfile:
+    with open('embedding\\' + dataset + '_keywords_embedding_new.csv', newline='', encoding='utf-8') as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
         next(reader)
         # 遍历csv文件中的每一行并将其添加到字典中
@@ -76,11 +69,12 @@ def loading_embedding(dataset):
 
 def loading_data(dataset, region_dict, word_dict, dataset_type):
     # 根据不同数据集读取不同位置的数据集
+
     file_location = ""
     if dataset == 'tweet':
-        file_location = "dataset\\tweet\\" + dataset_type + "_set.csv"
+        file_location = "dataset\\tweet\\" + dataset_type + "_data.csv"
     if dataset == "yelp":
-        file_location = "dataset\\yelp\\" + dataset_type + "_set.csv"
+        file_location = "dataset\\yelp\\" + dataset_type + "_data.csv"
 
     # 加载数据
     with open(file_location, newline='', encoding='utf-8') as csvfile:
@@ -91,8 +85,8 @@ def loading_data(dataset, region_dict, word_dict, dataset_type):
         reader = csv.reader(csvfile)
         next(reader)  # 跳过表头
         for row in reader:
-            time_str, label = row[0], 1
-            lon, lat = row[2], row[3]
+            time_str, label = row[0], row[4]
+            lon, lat = row[3], row[2]
             # print(lat,lon)
             # print(time_str,label,lat,lon)
             # 生成区域的embedding
@@ -127,14 +121,14 @@ def loading_data(dataset, region_dict, word_dict, dataset_type):
                     data_true.append(a)
                     label_true.append([int(label)])
                 else:
-                    data_false.append((a))
+                    data_false.append(a)
                     label_false.append([int(label)])
 
     if dataset_type == "train":
         # Todo 修改validation占比 并且让train 和 validation使用不同的正样本
         print(f"{len(data_true)} true data for train model")
         print(f"{len(data_false)} false data for train and validate model")
-        # train_false_data, test_false_data, train_false_labels, test_false_labels = train_test_split(data_false, labels_false, test_size=0.2, random_state=42)
+
         # Split the data into training (80%) and temporary (20%)
         train_false_data, temp_false_data, train_false_labels, temp_false_labels = train_test_split(data_false,
                                                                                                     label_false,
@@ -154,16 +148,9 @@ def loading_data(dataset, region_dict, word_dict, dataset_type):
         data_validation = np.concatenate((data_true, temp_false_data), axis=0)  # 拼接val真假数据
         label_validation = np.concatenate((label_true, temp_false_labels), axis=0)
         val_dataset = CustomDataset(data_validation, label_validation)
-        validation_false_data_cnt = np.count_nonzero(label_validation == 0)  # validation中负样本总数
-        validation_true_data_cnt = label_validation.size - validation_false_data_cnt  # validation中正样本总数
+        # validation_false_data_cnt = np.count_nonzero(label_validation == 0)  # validation中负样本总数
+        # validation_true_data_cnt = label_validation.size - validation_false_data_cnt  # validation中正样本总数
 
-        train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=512, shuffle=False)
         return train_loader, val_loader
-
-    elif dataset_type == "vali":
-        validation_dataset = CustomDataset(data_true, label_true)
-        validation_loader = DataLoader(validation_dataset, batch_size=128, shuffle=False)
-        validation_true_data_cnt = np.count_nonzero(label_true == 1)  # train中负样本总数
-        print(f"{validation_true_data_cnt} data to insert bloom filter")
-        return validation_loader

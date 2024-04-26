@@ -20,13 +20,41 @@ def add_unknown_words(word_vecs, vocab,k):
 
 '''
 # 加载Google's word2vec模型
-model = gensim.models.KeyedVectors.load_word2vec_format('../embedding_gene/GoogleNews-vectors-negative300.bin',
-                                                        binary=True)
+#
 # print('girl' in model)
 # 从文件中读取单词列表
+data = pd.read_csv("../dataset/tweet/tweet.csv")
+print(data['keywords'])
+keywords = data['keywords'].str.split().explode().tolist()
+print(len(keywords))
+keywords = [keyword.lower() for keyword in keywords]
 
-'''
+vocab = list(set(keywords))
 
+print(vocab)
+print(len(vocab))
+
+vectors = {}
+
+model = gensim.models.KeyedVectors.load_word2vec_format('../embedding_gene/GoogleNews-vectors-negative300.bin',
+                                                        binary=True)
+
+for word in vocab:
+    if word in model.key_to_index.keys():
+        vectors[word] = model[word]
+
+# print(vectors)
+# 将结果存储到csv文件中
+with open('tweet_keywords_embedding_new.csv', 'w', newline='', encoding='utf-8') as f:
+    writer = csv.writer(f)
+    # 写入表头
+    writer.writerow(['word', 'vector'])
+    for key, item in vectors.items():
+        writer.writerow([key, item])
+        # cnt+=1
+        # print(cnt)
+
+"""
 chunksize = 100000
 chunk_no = 0
 word_list = []
@@ -122,18 +150,8 @@ for word in vectors.keys():
 # 将结果存储到csv文件中
 
 
-with open('all_keywords_embedding.csv', 'w', newline='',encoding='utf-8') as f:
-    writer = csv.writer(f)
-    # 写入表头
-    writer.writerow(['word', 'vector'])
-    for key,item in vectors.items():
-        writer.writerow([key, item])
-        # cnt+=1
-        # print(cnt)
-'''
 
-keywords = []
-'''
+
 with open('validation_set_region.csv', newline='') as csvfile:
     reader = csv.reader(csvfile)
     for row in reader:
@@ -145,43 +163,10 @@ with open('validation_set_region.csv', newline='') as csvfile:
 vocab = list(set(keywords))
 
 lenth = 0
-'''
+
 keywords = pd.read_csv("../dataset/tweet_clean.csv")
 keywords = keywords.drop(keywords.columns[[0, 1]], axis=1)
 keywords.columns = ['timestamp', 'keywords', 'lat', 'lon']
-keywords.to_csv('tweet_clean_again.csv', index=False)
-'''
-keywords = keywords['1'].str.split().explode().tolist()
-keywords = [keyword.lower() for keyword in keywords]
+keywords.to_csv('tweet.csv', index=False)
 
-vocab = list(set(keywords))
-
-print(vocab)
-print(len(vocab))
-
-vectors = {}
-for word in vocab:
-    if word in model.key_to_index.keys():
-        vectors[word] = model[word]
-
-print(len(vectors))
-'''
-'''
-for word in vectors.keys():
-    if (len(vectors[word]) != lenth):
-        # print(vectors[word])
-        print(len(vectors[word]))
-        print("not equal2")
-# print(vectors)
-# 将结果存储到csv文件中
-
-
-with open('tweet_keywords_embedding.csv', 'w', newline='', encoding='utf-8') as f:
-    writer = csv.writer(f)
-    # 写入表头
-    writer.writerow(['word', 'vector'])
-    for key, item in vectors.items():
-        writer.writerow([key, item])
-        # cnt+=1
-        # print(cnt)
-'''
+"""
