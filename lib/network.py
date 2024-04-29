@@ -17,6 +17,28 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # update逻辑 先通过模型+BF判断对错，然后再通过模型判断数据，插入布隆过滤器
 
 
+class fpr_loss(nn.Module):
+    def __init__(self, all_record, all_memory, model_size, epsilon=1e-12):
+        super(fpr_loss, self).__init__()
+        self.epsilon = epsilon  # 添加一个小常数以避免计算 log(0)
+        self.all_record = all_record
+        self.memory = all_memory - model_size
+        if self.memory <= 0:
+            raise ValueError('memory is zero')
+    def forward(self, y_pred, y_true, val_acc):
+        y_pred = torch.clamp(y_pred, self.epsilon, 1 - self.epsilon)
+        bf_rate = torch.pow(2, -(self.memory / (y_pred - y_pred * y_true + self.all_record * val_acc) * torch.log(
+            torch.tensor(2))))
+        #
+        bf_rate = torch.clamp(bf_rate, self.epsilon, 1 - self.epsilon)
+        if torch.tensor(0) in y_pred - y_pred * y_true + self.all_record * val_acc:
+            raise ValueError('y_pred - y_pred * y_true + self.all_record * val_acc is zero')
+
+        bce_loss = -y_true * torch.log(y_pred) - (1 - y_true) * torch.log(1 - y_pred) - ((1 - y_true) * (
+                1 - y_pred) * torch.log(1 - bf_rate))
+        return torch.mean(bce_loss)
+
+
 class SimpleNetwork(nn.Module):
     def __init__(self, structure, input_dim, output_dim):
         self.device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
@@ -72,11 +94,14 @@ def get_model_size(model):
     return all_size_bit
 
 
-def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss(), output_acc=True):
-    criterion = loss_fun
+def train(model, train_loader, val_loader, all_memory=5 * 1024 * 1024,
+          all_record=12854455, num_epochs=100, output_acc=True):
+    model_size = get_model_size(model)
+    criterion = fpr_loss(all_record=all_record, all_memory=all_memory, model_size=model_size, epsilon=1e-12)
     optimizer = optim.Adam(model.parameters(), lr=0.005)
     device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-    val_accuracy = torch.rand(1) * 0.1
+    val_FPR = torch.rand(1) * 0.1
+    best_fpr = 999
     for epoch in range(num_epochs):
         model.train()  # 设置模型为训练模式
         running_loss = 0.0
@@ -90,7 +115,6 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
         train_true_data_cnt = 0
         validation_false_data_cnt = 0
         validation_true_data_cnt = 0
-        val_accuracy = 0
         train_acc_list = []
         train_loss_list = []
         train_FPR_list = []
@@ -114,7 +138,7 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
             targets = torch.tensor(targets, dtype=torch.int64)
 
             targets_float = targets.float()
-            loss = criterion(outputs, targets_float, val_accuracy)
+            loss = criterion(outputs, targets_float, val_FPR)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -147,7 +171,7 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
                 outputs = model(inputs)
                 # predicted = torch.round(outputs).int()
                 predicted = get_result(outputs)
-                loss = criterion(outputs, targets.float(), val_accuracy)
+                loss = criterion(outputs, targets.float(), val_FPR)
                 val_running_loss += loss.item()
                 val_samples += targets.size(0)
                 targets = targets.int()
@@ -165,6 +189,8 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
         val_loss_list.append(val_running_loss)
         val_FNR_list.append(val_FNR)
         val_FPR_list.append(val_FPR)
+        if (val_FPR < best_fpr) and (val_FPR != 0):
+            best_fpr = val_FPR
         if output_acc:
             print(
                 f"Epoch {epoch + 1} - Loss: {running_loss:.4f} - "
@@ -173,7 +199,7 @@ def train(model, train_loader, val_loader, num_epochs=100, loss_fun=nn.BCELoss()
                 f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} "
                 f"- val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
 
-    return val_accuracy
+    return best_fpr
 
 
 def region_mapping(d, region_dict):
@@ -402,8 +428,7 @@ class Bayes_Optimizer:
         model = SimpleNetwork([num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
 
         # 训练模型
-        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10,
-                     loss_fun=nn.BCELoss(), output_acc=False)
+        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10, output_acc=True)
 
     def optimize(self):
         optimizer = BayesianOptimization(
