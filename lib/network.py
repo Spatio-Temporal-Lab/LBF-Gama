@@ -18,24 +18,41 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 class fpr_loss(nn.Module):
-    def __init__(self, all_record, all_memory, model_size, epsilon=1e-12):
+    def __init__(self, all_record, all_memory, model_size, epsilon=1e-8):
         super(fpr_loss, self).__init__()
         self.epsilon = epsilon  # 添加一个小常数以避免计算 log(0)
         self.all_record = all_record
         self.memory = all_memory - model_size
         if self.memory <= 0:
             raise ValueError('memory is zero')
-    def forward(self, y_pred, y_true, val_fnr):
-        y_pred = torch.clamp(y_pred, self.epsilon, 1 - self.epsilon)
-        bf_rate = torch.pow(2, -(self.memory / (y_pred - y_pred * y_true + self.all_record * val_fnr) * torch.log(
-            torch.tensor(2))))
-        #
-        bf_rate = torch.clamp(bf_rate, self.epsilon, 1 - self.epsilon)
-        if torch.tensor(0) in y_pred - y_pred * y_true + self.all_record * val_fnr:
-            raise ValueError('y_pred - y_pred * y_true + self.all_record * val_acc is zero')
 
-        bce_loss = -y_true * torch.log(y_pred) - (1 - y_true) * torch.log(1 - y_pred) - ((1 - y_true) * (
-                1 - y_pred) * torch.log(1 - bf_rate))
+    def forward(self, y_pred, y_true, val_fnr):
+        # y_pred = torch.clamp(y_pred, min=self.epsilon, max=1 - self.epsilon)
+        y_pred = torch.sigmoid(y_pred)
+
+        denominator = y_pred - y_pred * y_true + self.all_record * val_fnr
+        denominator = torch.clamp(denominator, min=self.epsilon)  # 设定一个非常小的正数作为下限
+        bf_rate = torch.pow(2, -(self.memory / denominator * torch.log(torch.tensor(2.0))))
+
+        if torch.any(torch.isnan(bf_rate)):
+            raise ValueError('bf_rate contains NaN values')
+            #
+        bf_rate = torch.clamp(bf_rate, min=self.epsilon, max=1 - self.epsilon)
+        # if torch.tensor(0) in y_pred - y_pred * y_true + self.all_record * val_fnr:
+        #     raise ValueError('y_pred - y_pred * y_true + self.all_record * val_acc is zero')
+
+        # bce_loss = -y_true * torch.log(y_pred) - (1 - y_true) * torch.log(1 - y_pred) - (
+        #             (1 - y_true) * (1 - y_pred) * torch.log(1 - bf_rate))
+
+        bce_loss = -y_true * torch.log(y_pred) - (1 - y_true) * torch.log(1 - y_pred)
+        if torch.any(torch.isnan(bce_loss)):
+            raise ValueError('bce_loss contains NaN values before sub')
+        if (1 - y_true).any():  # 如果存在负样本
+            # 只对负样本添加bf_rate相关的损失项
+            negative_sample_loss = (1 - y_pred) * torch.log(1 - bf_rate)
+            bce_loss -= (1 - y_true) * negative_sample_loss
+        if torch.any(torch.isnan(bce_loss)):
+            raise ValueError('bce_loss contains NaN values after sub')
         return torch.mean(bce_loss)
 
 
