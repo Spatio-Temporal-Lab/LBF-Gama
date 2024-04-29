@@ -237,8 +237,8 @@ def insert(ck):
     lat = ck['lat']
     lon = ck['lon']
     time = datetime.strptime(time, '%Y-%m-%d %H:%M:%S')
-    time = str(time.year) + str(time.month).zfill(2) + str(time.day).zfill(2) + str(time.hour).zfill(2) + str(
-        time.minute).zfill(2)
+    time_bucket = time.hour * 2 + time.minute // 30
+    time = str(time.year) + str(time.month).zfill(2) + str(time.day).zfill(2) + str(time_bucket).zfill(2)
     # print(time)
     region_id = str(cal_region_id(lat, lon)).zfill(8)
     try:
