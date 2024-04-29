@@ -151,6 +151,6 @@ def loading_data(dataset, region_dict, word_dict, dataset_type):
         # validation_false_data_cnt = np.count_nonzero(label_validation == 0)  # validation中负样本总数
         # validation_true_data_cnt = label_validation.size - validation_false_data_cnt  # validation中正样本总数
 
-        train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=512, shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=256, shuffle=False)
         return train_loader, val_loader

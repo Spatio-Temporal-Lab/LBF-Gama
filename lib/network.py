@@ -25,13 +25,13 @@ class fpr_loss(nn.Module):
         self.memory = all_memory - model_size
         if self.memory <= 0:
             raise ValueError('memory is zero')
-    def forward(self, y_pred, y_true, val_acc):
+    def forward(self, y_pred, y_true, val_fnr):
         y_pred = torch.clamp(y_pred, self.epsilon, 1 - self.epsilon)
-        bf_rate = torch.pow(2, -(self.memory / (y_pred - y_pred * y_true + self.all_record * val_acc) * torch.log(
+        bf_rate = torch.pow(2, -(self.memory / (y_pred - y_pred * y_true + self.all_record * val_fnr) * torch.log(
             torch.tensor(2))))
         #
         bf_rate = torch.clamp(bf_rate, self.epsilon, 1 - self.epsilon)
-        if torch.tensor(0) in y_pred - y_pred * y_true + self.all_record * val_acc:
+        if torch.tensor(0) in y_pred - y_pred * y_true + self.all_record * val_fnr:
             raise ValueError('y_pred - y_pred * y_true + self.all_record * val_acc is zero')
 
         bce_loss = -y_true * torch.log(y_pred) - (1 - y_true) * torch.log(1 - y_pred) - ((1 - y_true) * (
@@ -100,7 +100,7 @@ def train(model, train_loader, val_loader, all_memory=5 * 1024 * 1024,
     criterion = fpr_loss(all_record=all_record, all_memory=all_memory, model_size=model_size, epsilon=1e-12)
     optimizer = optim.Adam(model.parameters(), lr=0.005)
     device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-    val_FPR = torch.rand(1) * 0.1
+    val_FNR = torch.rand(1) * 0.1
     best_fpr = 999
     for epoch in range(num_epochs):
         model.train()  # 设置模型为训练模式
@@ -138,7 +138,7 @@ def train(model, train_loader, val_loader, all_memory=5 * 1024 * 1024,
             targets = torch.tensor(targets, dtype=torch.int64)
 
             targets_float = targets.float()
-            loss = criterion(outputs, targets_float, val_FPR)
+            loss = criterion(outputs, targets_float, val_FNR)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -171,7 +171,7 @@ def train(model, train_loader, val_loader, all_memory=5 * 1024 * 1024,
                 outputs = model(inputs)
                 # predicted = torch.round(outputs).int()
                 predicted = get_result(outputs)
-                loss = criterion(outputs, targets.float(), val_FPR)
+                loss = criterion(outputs, targets.float(), val_FNR)
                 val_running_loss += loss.item()
                 val_samples += targets.size(0)
                 targets = targets.int()
