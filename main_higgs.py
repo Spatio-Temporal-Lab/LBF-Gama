@@ -21,11 +21,10 @@ class HIGGSDataset(Dataset):
 
 
 # 加载数据集
-df = pd.read_csv('E:\\python\\higgs\\training\\training.csv')
+df = pd.read_csv('dataset/train.csv')
 
 # 标签编码
-df['Label'] = df['Label'].apply(lambda x: 1 if x == 's' else 0)
-
+# df['Label'] = df['Label'].apply(lambda x: 1 if x == 's' else 0)
 
 # 数据预处理
 # def check_multicollinearity(df, threshold=0.7):
@@ -48,9 +47,10 @@ df['Label'] = df['Label'].apply(lambda x: 1 if x == 's' else 0)
 # df.drop(multicollinear_cols, axis=1, inplace=True)
 
 # 将's'标签（1）和'b'标签（0）分别过滤出来
-df_s = df[df['Label'] == 1]
-df_b = df[df['Label'] == 0]
-
+df_s = df[df['url_type'] == 1]
+print(df_s)
+df_b = df[df['url_type'] == 0]
+print(df_b)
 # 取出标签为's'的所有样本数
 s_count = len(df_s)
 
@@ -64,10 +64,12 @@ train_df = pd.concat([df_s, df_b_sample])
 validate_df = df_b.drop(df_b_sample.index)
 
 # 如果需要拆分特征和标签，可以如下进行
-X = train_df.drop('Label', axis=1).values.astype(np.float32)
-y = train_df['Label'].values.astype(np.float32)
-X_query = validate_df.drop('Label', axis=1).values.astype(np.float32)
-y_query = validate_df['Label'].values.astype(np.float32)
+X = train_df.drop('url_type', axis=1).values.astype(np.float32)
+y = train_df['url_type'].values.astype(np.float32)
+X_query = validate_df.drop('url_type', axis=1).values.astype(np.float32)
+y_query = validate_df['url_type'].values.astype(np.float32)
+
+print(y_query)
 
 # # 数据预处理
 # X = df.drop(columns=['Label']).values.astype(np.float32)
@@ -88,24 +90,25 @@ test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 input_dim = X_train.shape[1]
 print('input_dim = ', input_dim)
 output_dim = 1
-all_memory = 15 * 1024  # tweet模型大小：5 * 1024 * 1024
+all_memory = 10 * 1024  # tweet模型大小：5 * 1024 * 1024
 all_record = df.size
 learning_rate = 0.001
-hidden_units = (8, 96)
+hidden_units = (8, 48)
 
-# nas_opt = lib.network_higgs.Bayes_Optimizer(input_dim=input_dim, output_dim=output_dim, train_loader=train_loader,
-#                                             val_loader=test_loader, learning_rate=learning_rate,
-#                                             hidden_units=hidden_units, all_record=all_record, all_memory=all_memory)
-# model = nas_opt.optimize()
-# print("has optimized")
-# lib.network_higgs.train(model, train_loader=train_loader, num_epochs=30, val_loader=test_loader)
-# torch.save(model, 'best_higgs_model_15.pth')
+nas_opt = lib.network_higgs.Bayes_Optimizer(input_dim=input_dim, output_dim=output_dim, train_loader=train_loader,
+                                            val_loader=test_loader,
+                                            hidden_units=hidden_units, all_record=all_record, all_memory=all_memory)
+model = nas_opt.optimize()
+print("has optimized")
+lib.network_higgs.train(model, train_loader=train_loader, num_epochs=100, val_loader=test_loader)
+torch.save(model, 'best_url_model.pth')
 
 # model = torch.load('best_higgs_model_15.pth')
 
-model = lib.network_higgs.SimpleNetwork([8], input_dim=input_dim, output_dim=output_dim)
-lib.network_higgs.train_with_fpr(model, all_memory=all_memory, all_record=len(X_train)+len(X_test),
-                                 train_loader=train_loader, val_loader=test_loader, num_epochs=30)
+# model = lib.network_higgs.SimpleNetwork([256], input_dim=input_dim, output_dim=output_dim)
+# lib.network_higgs.train(model, all_memory=all_memory, all_record=len(X_train)+len(X_test),
+#                                 train_loader=train_loader, val_loader=test_loader, num_epochs=30)
+# lib.network_higgs.train(model, train_loader=train_loader, num_epochs=100, val_loader=test_loader)
 # print(lib.network_higgs.get_model_size(model))
 
 data_negative = lib.network_higgs.validate(model, X_train, y_train, X_test, y_test)

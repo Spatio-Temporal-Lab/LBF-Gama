@@ -230,10 +230,10 @@ def train_with_fpr(model, train_loader, val_loader, all_memory,
             train_true_data_cnt += (targets == 1).sum().item()
 
         train_accuracy = total_correct / total_samples
-        print(f'train_false_positives: {train_false_positives}')
-        print(f'train_false_data_cnt: {train_false_data_cnt}')
-        print(f'train_false_negatives: {train_false_negatives}')
-        print(f'train_true_data_cnt: {train_true_data_cnt}')
+        # print(f'train_false_positives: {train_false_positives}')
+        # print(f'train_false_data_cnt: {train_false_data_cnt}')
+        # print(f'train_false_negatives: {train_false_negatives}')
+        # print(f'train_true_data_cnt: {train_true_data_cnt}')
         train_FPR = train_false_positives / train_false_data_cnt
         train_FNR = train_false_negatives / train_true_data_cnt
 
@@ -356,7 +356,7 @@ def query(model, bloom_filter, X_query, y_query):
     prediction_results = batch_predict_accuracy(model, X_query)
     for i in range(total):
         input_data = X_query[i]
-        true_label = y_query[i]
+        true_label = 1 - y_query[i]
         # prediction = predict_single_row(model, input_data)
         prediction = prediction_results[i]
         if prediction == 1:
@@ -369,7 +369,7 @@ def query(model, bloom_filter, X_query, y_query):
             else:
                 if true_label == 1:
                     fn = fn + 1
-                    print(i, input_data)
+                    # print(i, input_data)
 
     print(f"fp: {fp}")
     print(f"total: {total}")
@@ -378,7 +378,7 @@ def query(model, bloom_filter, X_query, y_query):
 
 
 class Bayes_Optimizer:
-    def __init__(self, input_dim, output_dim, train_loader, val_loader, all_record, all_memory, learning_rate=0.005,
+    def __init__(self, input_dim, output_dim, train_loader, val_loader, all_record, all_memory, learning_rate=0.001,
                  hidden_units=(8, 512)):
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -398,7 +398,7 @@ class Bayes_Optimizer:
         model = SimpleNetwork([num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
 
         # 训练模型
-        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10, output_acc=True)
+        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10, output_acc=False)
 
     def optimize(self):
         optimizer = BayesianOptimization(
