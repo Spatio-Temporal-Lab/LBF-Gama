@@ -286,7 +286,7 @@ def predict_single_row(model, row):
     return prediction
 
 
-def batch_predict_accuracy(model, X, batch_size=128):
+def batch_predict_accuracy(model, X,  batch_size=128):
     tensor_data = torch.tensor(X, dtype=torch.float32).to(device)
 
     dataset = TensorDataset(tensor_data)
@@ -354,27 +354,34 @@ def query(model, bloom_filter, X_query, y_query):
     print(f"total = {total}")
 
     prediction_results = batch_predict_accuracy(model, X_query)
+    cnt_1 = 0
+    cnt_2 = 0
     for i in range(total):
         input_data = X_query[i]
-        true_label = 1 - y_query[i]
+        true_label = y_query[i]
         # prediction = predict_single_row(model, input_data)
         prediction = prediction_results[i]
         if prediction == 1:
             if true_label == 0:
                 fp = fp + 1
+                cnt_1 += 1
         else:
             if input_data in bloom_filter:
                 if true_label == 0:
                     fp = fp + 1
+                    cnt_2 += 1
             else:
                 if true_label == 1:
                     fn = fn + 1
-                    # print(i, input_data)
+                    #print(i, input_data)
+                    #print("true_label", true_label)
 
     print(f"fp: {fp}")
     print(f"total: {total}")
     print(f"fpr: {float(fp) / total}")
     print(f"fnr: {float(fn) / total}")
+    print(f"cnt_1: {cnt_1}")
+    print(f"cnt_2: {cnt_2}")
 
 
 class Bayes_Optimizer:
