@@ -10,6 +10,8 @@ from bayes_opt import BayesianOptimization
 from pybloom_live import BloomFilter
 from torch.utils.data import DataLoader, TensorDataset
 
+from lib import bf_util
+
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 
@@ -99,10 +101,11 @@ def get_model_size(model):
     return all_size_bit
 
 
-def train(model, train_loader, val_loader, num_epochs=100, output_acc=True):
+def train(model, bf_memory, n_val, train_loader, val_loader, num_epochs=100, output_acc=True):
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     best_fpr = 999
+    best_fnr = 1.0
     for epoch in range(num_epochs):
         model.train()  # 设置模型为训练模式
         running_loss = 0.0
@@ -173,6 +176,7 @@ def train(model, train_loader, val_loader, num_epochs=100, output_acc=True):
         val_FNR = val_false_negatives / validation_true_data_cnt
         if (val_FPR < best_fpr) and (val_FPR != 0):
             best_fpr = val_FPR
+            best_fnr = val_FNR
         if output_acc:
             print(
                 f"Epoch {epoch + 1} - Loss: {running_loss:.4f} - "
@@ -181,7 +185,8 @@ def train(model, train_loader, val_loader, num_epochs=100, output_acc=True):
                 f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} "
                 f"- val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
 
-    return 1 - best_fpr
+    return 1 - (best_fpr + (1 - best_fpr) * bf_util.get_fpr(n_items=best_fnr * n_val, bf_size=bf_memory))
+    # return 1 - best_fpr
 
 
 def train_with_fpr(model, train_loader, val_loader, all_memory,
@@ -351,7 +356,7 @@ def query(model, bloom_filter, X_query, y_query):
     fp = 0
 
     total = len(X_query)
-    print(f"total = {total}")
+    print(f"query count = {total}")
 
     prediction_results = batch_predict_accuracy(model, X_query)
     for i in range(total):
@@ -377,11 +382,12 @@ def query(model, bloom_filter, X_query, y_query):
     print(f"total: {total}")
     print(f"fpr: {float(fp) / total}")
     print(f"fnr: {float(fn) / total}")
+    return float(fp) / total
 
 
 class Bayes_Optimizer:
-    def __init__(self, input_dim, output_dim, train_loader, val_loader, all_record, all_memory, learning_rate=0.001,
-                 hidden_units=(8, 512)):
+    def __init__(self, input_dim, output_dim, train_loader, val_loader, all_record, all_memory, val_size,
+                 learning_rate=0.001, hidden_units=(8, 512)):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.train_loader = train_loader
@@ -391,6 +397,7 @@ class Bayes_Optimizer:
         self.best_model = None
         self.all_record = all_record
         self.all_memory = all_memory
+        self.val_size = val_size
 
     def target_function(self, num_hidden_units):
         # 确保 num_hidden_units 是整数
@@ -400,7 +407,8 @@ class Bayes_Optimizer:
         model = SimpleNetwork([num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
 
         # 训练模型
-        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10, output_acc=False)
+        return train(model, bf_memory=self.all_memory-get_model_size(model), n_val=self.val_size,
+                     train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10, output_acc=False)
 
     def optimize(self):
         optimizer = BayesianOptimization(
@@ -416,4 +424,5 @@ class Bayes_Optimizer:
         # 使用最佳参数重新训练模型
         best_model = SimpleNetwork([best_num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
         print(optimizer.max)
+        print(f"choose {best_num_hidden_units} hidden units")
         return best_model
