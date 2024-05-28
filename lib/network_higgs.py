@@ -60,7 +60,7 @@ class SimpleNetwork(nn.Module):
         prev_layer_dim = self.input_dim
         for layer_dim in self.structure:
             layers.append(nn.Linear(prev_layer_dim, layer_dim))
-            layers.append(nn.Sigmoid())  # 在隐藏层应用 Sigmoid 激活函数
+            layers.append(nn.ReLU())  # 在隐藏层应用 Sigmoid 激活函数
             prev_layer_dim = layer_dim
         # 在输出层应用 Sigmoid 激活函数
         layers.append(nn.Linear(prev_layer_dim, self.output_dim))
@@ -349,6 +349,8 @@ def query(model, bloom_filter, X_query, y_query):
     total = len(X_query)
     print(f"total = {total}")
 
+    cnt_1 = 0
+    cnt_2 = 0
     prediction_results = batch_predict_accuracy(model, X_query)
     for i in range(total):
         input_data = X_query[i]
@@ -358,10 +360,12 @@ def query(model, bloom_filter, X_query, y_query):
         if prediction == 1:
             if true_label == 0:
                 fp = fp + 1
+                cnt_1 = cnt_1 + 1
         else:
             if input_data in bloom_filter:
                 if true_label == 0:
                     fp = fp + 1
+                    cnt_2 = cnt_2 + 1
             else:
                 if true_label == 1:
                     fn = fn + 1
@@ -371,6 +375,8 @@ def query(model, bloom_filter, X_query, y_query):
     print(f"total: {total}")
     print(f"fpr: {float(fp) / total}")
     print(f"fnr: {float(fn) / total}")
+    print(f"cnt_1: {cnt_1}")
+    print(f"cnt_2: {cnt_2}")
 
 
 class Bayes_Optimizer:

@@ -102,11 +102,10 @@ hidden_units = (8, 96)
 # lib.network_higgs.train(model, train_loader=train_loader, num_epochs=30, val_loader=test_loader)
 # torch.save(model, 'best_higgs_model_15.pth')
 
-model = torch.load('best_higgs_model_15.pth')
+# model = torch.load('best_higgs_model_15.pth')
 
-# model = lib.network_higgs.SimpleNetwork([64], input_dim=input_dim, output_dim=output_dim)
-# lib.network_higgs.train_with_fpr(model, all_memory=all_memory, all_record=len(X_train)+len(X_test),
-#                                  train_loader=train_loader, val_loader=test_loader, num_epochs=30)
+model = lib.network_higgs.SimpleNetwork([64], input_dim=input_dim, output_dim=output_dim)
+lib.network_higgs.train(model, train_loader=train_loader, val_loader=test_loader, num_epochs=30)
 # print(lib.network_higgs.get_model_size(model))
 
 data_negative = lib.network_higgs.validate(model, X_train, y_train, X_test, y_test)

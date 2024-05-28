@@ -88,24 +88,31 @@ input_dim = X_train.shape[1]
 print('input_dim = ', input_dim)
 print('test dataset size = ', len(test_dataset))
 output_dim = 1
-all_memory = 30 * 1024  # tweet模型大小：5 * 1024 * 1024
+all_memory = 100 * 1024  # tweet模型大小：5 * 1024 * 1024
 all_record = df.size
 learning_rate = 0.001
-hidden_units = (8, 256)
+hidden_units = (8, 512)
 
 # nas_opt = lib.network_url.Bayes_Optimizer(input_dim=input_dim, output_dim=output_dim, train_loader=train_loader,
-#                                           val_loader=test_loader, val_size=len(test_dataset)+len(train_dataset),
+#                                           val_loader=test_loader, true_data_count=len(df_s),
 #                                           hidden_units=hidden_units, all_record=all_record, all_memory=all_memory)
 # model = nas_opt.optimize()
-# # print("has optimized")
-# lib.network_url.train(model, train_loader=train_loader, n_val=len(test_dataset),
+# print("has optimized")
+# lib.network_url.train(model, train_loader=train_loader, n_true=len(df_s),
 #                       bf_memory=all_memory-lib.network_url.get_model_size(model), num_epochs=30,
 #                       val_loader=test_loader)
 # torch.save(model, 'best_url_model.pth')
+#
+model = lib.network_url.SimpleNetwork([128], input_dim=input_dim, output_dim=output_dim)
+lib.network_url.train(model, train_loader=train_loader, bf_memory=all_memory-lib.network_url.get_model_size(model),
+                      n_true=len(df_s), val_loader=test_loader, num_epochs=30)
 
-model = lib.network_url.SimpleNetwork([29], input_dim=input_dim, output_dim=output_dim)
-lib.network_url.train(model, train_loader=train_loader, bf_memory=all_memory - lib.network_url.get_model_size(model),
-                      n_val=len(test_dataset)+len(train_dataset), val_loader=test_loader, num_epochs=30)
+# lib.network_url.train_with_fpr_1(model, train_loader=train_loader,
+#                                  bf_memory=all_memory - lib.network_url.get_model_size(model),
+#                                  true_data_count=len(df_s), val_loader=test_loader, num_epochs=30)
+
+# lib.network_url.train_with_fpr_1(model, train_loader=train_loader, all_memory=all_memory,
+#                                  val_loader=test_loader, num_epochs=30, all_record=len(test_dataset)+len(train_dataset))
 
 # model = torch.load('best_url_model.pth')
 # lib.network_url.train(model, train_loader=train_loader, num_epochs=30, val_loader=test_loader)
