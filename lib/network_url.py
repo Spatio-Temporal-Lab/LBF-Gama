@@ -9,7 +9,7 @@ import torch.optim as optim
 from bayes_opt import BayesianOptimization
 from pybloom_live import BloomFilter
 from torch.utils.data import DataLoader, TensorDataset
-
+import sys
 from lib import bf_util
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -126,6 +126,17 @@ def get_model_size(model):
     return all_size_bit
 
 
+def bst_get_model_size(bst):
+    num_trees = bst.num_trees()
+
+    # 将模型转换为字符串
+    model_str = bst.dump_model()
+
+    # 计算模型字符串的大小
+    model_size = sys.getsizeof(model_str)
+    return model_size
+
+
 def train(model, bf_memory, n_true, train_loader, val_loader, num_epochs=100, output_acc=True):
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -210,7 +221,7 @@ def train(model, bf_memory, n_true, train_loader, val_loader, num_epochs=100, ou
                 f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} "
                 f"- val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
 
-    return 1 - (best_fpr + (1 - best_fpr) * bf_util.get_fpr(n_items=best_fnr*n_true, bf_size=bf_memory))
+    return 1 - (best_fpr + (1 - best_fpr) * bf_util.get_fpr(n_items=best_fnr * n_true, bf_size=bf_memory))
     # return 1 - best_fpr
 
 
@@ -424,7 +435,36 @@ def batch_predict_accuracy(model, X, batch_size=128):
     return all_predictions
 
 
+def lightgbm_batch_predict_accuracy(model, X, batch_size=128):
+    tensor_data = torch.tensor(X, dtype=torch.float32).to(device)
+
+    dataset = TensorDataset(tensor_data)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+
+    all_predictions = []
+
+    with torch.no_grad():
+        for inputs in dataloader:
+            inputs = inputs[0]  # unpack the tuple
+            outputs = model.predict(inputs)
+            predicted = (outputs > 0.5)
+            all_predictions.append(predicted)
+
+    # Concatenate all predictions into a single numpy array
+    all_predictions = np.concatenate(all_predictions).flatten()
+
+    return all_predictions
+
+
 def validate(model, X_train, y_train, X_test, y_test):
+    prediction_results = lightgbm_batch_predict_accuracy(model, X_train)
+    indices_train = [i for i in range(len(X_train)) if prediction_results[i] == 0 and y_train[i] == 1]
+    prediction_results = lightgbm_batch_predict_accuracy(model, X_test)
+    indices_test = [i for i in range(len(X_test)) if prediction_results[i] == 0 and y_test[i] == 1]
+    return np.concatenate((X_train[indices_train], X_test[indices_test]), axis=0)
+
+
+def lightgbm_validate(model, X_train, y_train, X_test, y_test):
     prediction_results = batch_predict_accuracy(model, X_train)
     indices_train = [i for i in range(len(X_train)) if prediction_results[i] == 0 and y_train[i] == 1]
     prediction_results = batch_predict_accuracy(model, X_test)
@@ -466,7 +506,8 @@ def create_bloom_filter(dataset, bf_name, bf_size):
 def query(model, bloom_filter, X_query, y_query):
     fn = 0
     fp = 0
-
+    cnt_ml = 0
+    cnt_bf = 0
     total = len(X_query)
     print(f"query count = {total}")
 
@@ -481,10 +522,12 @@ def query(model, bloom_filter, X_query, y_query):
         if prediction == 1:
             if true_label == 0:
                 fp = fp + 1
+                cnt_ml = cnt_ml + 1
         else:
             if input_data in bloom_filter:
                 if true_label == 0:
                     fp = fp + 1
+                    cnt_bf = cnt_bf + 1
             else:
                 if true_label == 1:
                     fn = fn + 1
@@ -494,6 +537,47 @@ def query(model, bloom_filter, X_query, y_query):
     print(f"total: {total}")
     print(f"fpr: {float(fp) / total}")
     print(f"fnr: {float(fn) / total}")
+    print(f"cnt_ml: {cnt_ml}")
+    print(f"cnt_bf: {cnt_bf}")
+    return float(fp) / total
+
+
+def bst_query(model, bloom_filter, X_query, y_query):
+    fn = 0
+    fp = 0
+    cnt_ml = 0
+    cnt_bf = 0
+    total = len(X_query)
+    print(f"query count = {total}")
+
+    prediction_results = lightgbm_batch_predict_accuracy(model, X_query)
+    for i in range(total):
+        input_data = X_query[i]
+        # true_label = 1 - y_query[i]
+        true_label = y_query[i]
+        # print(f'true_label = {true_label}')
+        # prediction = predict_single_row(model, input_data)
+        prediction = prediction_results[i]
+        if prediction == 1:
+            if true_label == 0:
+                fp = fp + 1
+                cnt_ml = cnt_ml + 1
+        else:
+            if input_data in bloom_filter:
+                if true_label == 0:
+                    fp = fp + 1
+                    cnt_bf = cnt_bf + 1
+            else:
+                if true_label == 1:
+                    fn = fn + 1
+                    # print(i, input_data)
+
+    print(f"fp: {fp}")
+    print(f"total: {total}")
+    print(f"fpr: {float(fp) / total}")
+    print(f"fnr: {float(fn) / total}")
+    print(f"cnt_ml: {cnt_ml}")
+    print(f"cnt_bf: {cnt_bf}")
     return float(fp) / total
 
 

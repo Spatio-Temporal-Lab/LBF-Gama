@@ -60,7 +60,7 @@ train_df = pd.concat([df_s, df_b_sample])
 
 # 剩下的标签为'b'的样本作为测试集
 validate_df = df_b.drop(df_b_sample.index)
-
+print(validate_df)
 # 如果需要拆分特征和标签，可以如下进行
 X = train_df.drop('url_type', axis=1).values.astype(np.float32)
 y = train_df['url_type'].values.astype(np.float32)
@@ -88,7 +88,7 @@ input_dim = X_train.shape[1]
 print('input_dim = ', input_dim)
 print('test dataset size = ', len(test_dataset))
 output_dim = 1
-all_memory = 100 * 1024  # tweet模型大小：5 * 1024 * 1024
+all_memory = 600 * 1024  # tweet模型大小：5 * 1024 * 1024
 all_record = df.size
 learning_rate = 0.001
 hidden_units = (8, 512)
@@ -103,16 +103,13 @@ hidden_units = (8, 512)
 #                       val_loader=test_loader)
 # torch.save(model, 'best_url_model.pth')
 #
-model = lib.network_url.SimpleNetwork([128], input_dim=input_dim, output_dim=output_dim)
-lib.network_url.train(model, train_loader=train_loader, bf_memory=all_memory-lib.network_url.get_model_size(model),
-                      n_true=len(df_s), val_loader=test_loader, num_epochs=30)
+model = lib.network_url.SimpleNetwork([8, 32, 8], input_dim=input_dim, output_dim=output_dim)
+# lib.network_url.train(model, train_loader=train_loader, bf_memory=all_memory - lib.network_url.get_model_size(model),
+#                      n_true=len(df_s), val_loader=test_loader, num_epochs=30)
 
-# lib.network_url.train_with_fpr_1(model, train_loader=train_loader,
-#                                  bf_memory=all_memory - lib.network_url.get_model_size(model),
-#                                  true_data_count=len(df_s), val_loader=test_loader, num_epochs=30)
-
-# lib.network_url.train_with_fpr_1(model, train_loader=train_loader, all_memory=all_memory,
-#                                  val_loader=test_loader, num_epochs=30, all_record=len(test_dataset)+len(train_dataset))
+lib.network_url.train_with_fpr_1(model, train_loader=train_loader,
+                                 bf_memory=all_memory - lib.network_url.get_model_size(model),
+                                 true_data_count=len(df_s), val_loader=test_loader, num_epochs=30)
 
 # model = torch.load('best_url_model.pth')
 # lib.network_url.train(model, train_loader=train_loader, num_epochs=30, val_loader=test_loader)
