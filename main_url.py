@@ -88,7 +88,7 @@ input_dim = X_train.shape[1]
 print('input_dim = ', input_dim)
 print('test dataset size = ', len(test_dataset))
 output_dim = 1
-all_memory = 600 * 1024  # tweet模型大小：5 * 1024 * 1024
+all_memory = 128 * 1024  # tweet模型大小：5 * 1024 * 1024
 all_record = df.size
 learning_rate = 0.001
 hidden_units = (8, 512)
@@ -104,16 +104,12 @@ hidden_units = (8, 512)
 # torch.save(model, 'best_url_model.pth')
 #
 model = lib.network_url.SimpleNetwork([8, 32, 8], input_dim=input_dim, output_dim=output_dim)
-# lib.network_url.train(model, train_loader=train_loader, bf_memory=all_memory - lib.network_url.get_model_size(model),
-#                      n_true=len(df_s), val_loader=test_loader, num_epochs=30)
+lib.network_url.train(model, train_loader=train_loader, bf_memory=all_memory - lib.network_url.get_model_size(model),
+                      n_true=len(df_s), val_loader=test_loader, num_epochs=30)
 
-lib.network_url.train_with_fpr_1(model, train_loader=train_loader,
-                                 bf_memory=all_memory - lib.network_url.get_model_size(model),
-                                 true_data_count=len(df_s), val_loader=test_loader, num_epochs=30)
-
-# model = torch.load('best_url_model.pth')
-# lib.network_url.train(model, train_loader=train_loader, num_epochs=30, val_loader=test_loader)
-# print(lib.network_url.get_model_size(model))
+# lib.network_url.train_with_fpr_1(model, train_loader=train_loader,
+#                                  bf_memory=all_memory - lib.network_url.get_model_size(model),
+#                                  true_data_count=len(df_s), val_loader=test_loader, num_epochs=30)
 
 data_negative = lib.network_url.validate(model, X_train, y_train, X_test, y_test)
 
@@ -125,8 +121,6 @@ bloom_size = all_memory - model_size
 
 bloom_filter = lib.network_url.create_bloom_filter(dataset=data_negative, bf_name='best_higgs_bf_3000',
                                                    bf_size=bloom_size)
-# with open('best_higgs_bf_3000', 'rb') as bf_file:
-#     bloom_filter = pickle.load(bf_file)
 
 # 访问布隆过滤器的 num_bits 属性
 num_bits = bloom_filter.num_bits
@@ -137,41 +131,3 @@ print("memory of bloom filter: ", memory_in_bytes)
 print("memory of learned model: ", model_size)
 
 fpr = lib.network_url.query(model, bloom_filter, X_query, y_query)
-
-# with open('output.txt', 'a') as file:
-#     for num in [128, 256]:
-#         print(f'num = {num}')
-#
-#         model = lib.network_url.SimpleNetwork([num], input_dim=input_dim, output_dim=output_dim)
-#         lib.network_url.train(model, train_loader=train_loader, bf_memory=all_memory-lib.network_url.get_model_size(model),
-#                               n_val=len(test_dataset), val_loader=test_loader, num_epochs=30)
-#         # lib.network_url.train(model, train_loader=train_loader, num_epochs=30, val_loader=test_loader)
-#         # print(lib.network_url.get_model_size(model))
-#
-#         data_negative = lib.network_url.validate(model, X_train, y_train, X_test, y_test)
-#
-#         model.eval()
-#
-#         # 获得学习模型的内存大小
-#         model_size = lib.network_url.get_model_size(model)
-#         bloom_size = all_memory - model_size
-#
-#         bloom_filter = lib.network_url.create_bloom_filter(dataset=data_negative, bf_name='best_higgs_bf_3000',
-#                                                            bf_size=bloom_size)
-#         # with open('best_higgs_bf_3000', 'rb') as bf_file:
-#         #     bloom_filter = pickle.load(bf_file)
-#
-#         # 访问布隆过滤器的 num_bits 属性
-#         num_bits = bloom_filter.num_bits
-#
-#         # 将比特位转换为字节（8 bits = 1 byte）
-#         memory_in_bytes = num_bits / 8
-#         print("memory of bloom filter: ", memory_in_bytes)
-#         print("memory of learned model: ", model_size)
-#
-#         fpr = lib.network_url.query(model, bloom_filter, X_query, y_query)
-#         print(f'fpr = {fpr}')
-#
-#         file.write(f"{num} {fpr}\n")
-#
-#         num *= 2
