@@ -1,5 +1,5 @@
-import math
 import pickle
+import sys
 import warnings
 
 import numpy as np
@@ -9,7 +9,7 @@ import torch.optim as optim
 from bayes_opt import BayesianOptimization
 from pybloom_live import BloomFilter
 from torch.utils.data import DataLoader, TensorDataset
-import sys
+
 from lib import bf_util
 
 warnings.filterwarnings("ignore", category=UserWarning)

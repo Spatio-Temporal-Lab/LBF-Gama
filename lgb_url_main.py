@@ -1,31 +1,10 @@
-import os
-import pickle
-
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import torch
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from torch.utils.data import Dataset
 
-import lib.network_url
-
-
-# 序列化模型对象
-
-
-class HIGGSDataset(Dataset):
-    def __init__(self, X_, y_):
-        self.X = torch.tensor(X_)
-        self.y = torch.tensor(y_)
-
-    def __len__(self):
-        return len(self.X)
-
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
-
+import lib.lgb_url
 
 # 加载数据集
 df = pd.read_csv('dataset/train.csv')
@@ -45,7 +24,7 @@ train_df = pd.concat([df_s, df_b_sample])
 
 # 剩下的标签为'b'的样本作为测试集
 validate_df = df_b.drop(df_b_sample.index)
-print(validate_df)
+
 # 如果需要拆分特征和标签，可以如下进行
 X = train_df.drop('url_type', axis=1).values.astype(np.float32)
 y = train_df['url_type'].values.astype(np.float32)
@@ -66,29 +45,25 @@ test_data = lgb.Dataset(X_test, label=y_test)
 params = {
     'objective': 'binary',
     'metric': 'binary_logloss',
-    'num_leaves': 63,
+    'num_leaves': 31,
     'learning_rate': 0.1,
     'feature_fraction': 1,
 }
 all_memory = 64 * 1024  # tweet模型大小：5 * 1024 * 1024
 
-num_round = 100
+num_round = 10
 bst = lgb.train(params, train_data, num_round, valid_sets=[test_data])
-bst.save_model('bst_model.txt')
-model_size = os.path.getsize('bst_model.txt')
-print("模型在内存中所占用的大小（字节）:", model_size)
-with open('bst_model.pkl', 'wb') as f:
-    pickle.dump(bst, f)
 
-threshold = 0.99
-data_negative = lib.network_url.lightgbm_validate(bst, X_train, y_train, X_test, y_test, threshold)
-model_size = lib.network_url.bst_get_model_size(bst)
+model_size = lib.lgb_url.lgb_get_model_size(bst)
+print("模型在内存中所占用的大小（字节）:", model_size)
+
+
+threshold = 0.5
+data_negative = lib.lgb_url.lgb_validate(bst, X_train, y_train, X_test, y_test, threshold)
 bloom_size = all_memory - model_size
 
-bloom_filter = lib.network_url.create_bloom_filter(dataset=data_negative, bf_name='best_higgs_bf_3000',
-                                                   bf_size=bloom_size)
-# with open('best_higgs_bf_3000', 'rb') as bf_file:
-#     bloom_filter = pickle.load(bf_file)
+bloom_filter = lib.lgb_url.create_bloom_filter(dataset=data_negative, bf_name='best_higgs_bf_3000',
+                                               bf_size=bloom_size)
 
 # 访问布隆过滤器的 num_bits 属性
 num_bits = bloom_filter.num_bits
@@ -98,5 +73,4 @@ memory_in_bytes = num_bits / 8
 print("memory of bloom filter: ", memory_in_bytes)
 print("memory of learned model: ", model_size)
 
-fpr = lib.network_url.bst_query(bst, bloom_filter, X_query, y_query, threshold)
-
+fpr = lib.lgb_url.lgb_query(bst, bloom_filter, X_query, y_query, threshold, False)
