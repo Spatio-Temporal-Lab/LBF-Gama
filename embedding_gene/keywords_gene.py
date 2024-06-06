@@ -45,7 +45,7 @@ for word in vocab:
 
 # print(vectors)
 # 将结果存储到csv文件中
-with open('tweet_keywords_embedding_new.csv', 'w', newline='', encoding='utf-8') as f:
+with open('tweet_keywords_embedding.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     # 写入表头
     writer.writerow(['word', 'vector'])
