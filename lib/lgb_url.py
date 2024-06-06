@@ -1,5 +1,4 @@
 import pickle
-import sys
 
 import numpy as np
 from pybloom_live import BloomFilter
@@ -25,7 +24,7 @@ def lgb_validate(model, X_train, y_train, X_test, y_test, threshold):
     return np.concatenate((X_train[indices_train], X_test[indices_test]), axis=0)
 
 
-def create_bloom_filter(dataset, bf_name, bf_size):
+def create_bloom_filter(dataset, bf_size):
     n_items = len(dataset)
     print('n_items = ', n_items)
     print('bf_size = ', bf_size)
@@ -35,10 +34,6 @@ def create_bloom_filter(dataset, bf_name, bf_size):
     for data in dataset:
         bloom_filter.add(data)
 
-    with open(bf_name, 'wb') as bf_file:
-        pickle.dump(bloom_filter, bf_file)
-
-    print("布隆过滤器已保存")
     return bloom_filter
 
 
