@@ -43,7 +43,7 @@ combined_data = np.concatenate((df_train.loc[id_train, 'url'].values, df_test.lo
 
 # 定义布隆过滤器初始大小
 initial_size = 32
-max_size = 256
+max_size = 512
 
 # 循环，从32开始，每次乘以2，直到256
 size = initial_size

@@ -32,9 +32,9 @@ params = {
     'metric': 'binary_logloss',
     'num_leaves': 31,
     'learning_rate': 0.05,
-    'feature_fraction': 0.99,
+    'feature_fraction': 0.9,
 }
-all_memory = 128 * 1024  # tweet模型大小：5 * 1024 * 1024
+all_memory = 256 * 1024  # tweet模型大小：5 * 1024 * 1024
 
 n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
 n_test = len(df_test)
