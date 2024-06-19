@@ -6,20 +6,16 @@ import lib.bf_util
 import lib.lgb_url
 
 
-df_train = pd.read_csv('dataset/url_train.csv')
-df_test = pd.read_csv('dataset/url_test.csv')
-df_query = pd.read_csv('dataset/url_query.csv')
+df_train = pd.read_csv('dataset/higgs_train.csv')
+df_test = pd.read_csv('dataset/higgs_test.csv')
+df_query = pd.read_csv('dataset/higgs_query.csv')
 
-train_urls = df_train['url']
-test_urls = df_test['url']
-query_urls = df_query['url']
-
-X_train = df_train.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_train = df_train['url_type'].values.astype(np.float32)
-X_test = df_test.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_test = df_test['url_type'].values.astype(np.float32)
-X_query = df_query.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_query = df_query['url_type'].values.astype(np.float32)
+X_train = df_train.drop(columns=['Label']).values.astype(np.float32)
+y_train = df_train['Label'].values.astype(np.float32)
+X_test = df_test.drop(columns=['Label']).values.astype(np.float32)
+y_test = df_test['Label'].values.astype(np.float32)
+X_query = df_query.drop(columns=['Label']).values.astype(np.float32)
+y_query = df_query['Label'].values.astype(np.float32)
 
 train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
 test_data = lgb.Dataset(X_test, label=y_test, free_raw_data=False)
@@ -33,9 +29,9 @@ params = {
     'learning_rate': 0.05,
     'feature_fraction': 0.9,
 }
-all_memory = 32 * 1024  # tweet模型大小：5 * 1024 * 1024
+all_memory = 8 * 1024  # tweet模型大小：5 * 1024 * 1024
 
-n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
+n_true = df_train[df_train['Label'] == 1].shape[0] + df_test[df_test['Label'] == 1].shape[0]
 n_test = len(df_test)
 
 
@@ -126,7 +122,7 @@ print("模型在内存中所占用的大小（字节）:", model_size)
 print(f"best threshold:", best_threshold)
 print(f"best epoch:", best_epoch)
 
-data_negative = lib.lgb_url.lgb_validate_url(best_bst, X_train, y_train, train_urls, X_test, y_test, test_urls, best_threshold)
+data_negative = lib.lgb_url.lgb_validate(best_bst, X_train, y_train, X_test, y_test, best_threshold)
 print(f"{len(data_negative)} insert into bloom filter")
 bloom_size = all_memory - model_size
 
@@ -140,4 +136,4 @@ memory_in_bytes = num_bits / 8
 print("memory of bloom filter: ", memory_in_bytes)
 print("memory of learned model: ", model_size)
 
-fpr = lib.lgb_url.lgb_query_url(best_bst, bloom_filter, X_query, y_query, query_urls, best_threshold, False)
+fpr = lib.lgb_url.lgb_query(best_bst, bloom_filter, X_query, y_query, best_threshold, False)
