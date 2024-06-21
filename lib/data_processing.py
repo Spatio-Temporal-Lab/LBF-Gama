@@ -37,8 +37,7 @@ def cal_region_id(lon, lat, x_min=27, x_max=54, y_min=-120, y_max=-74, one_kilo=
 
 def loading_embedding(dataset):
     # 加载区域的编码信息
-    data = pd.read_csv('embedding\\region_embedding_new.csv')
-
+    data = pd.read_csv('embedding/region_embedding.csv')
     data['Merged_List'] = np.array(data[['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14',
                                          '15', '16', '17', '18', '19', '20', '21', '22', '23']].apply(
         lambda x: x.tolist(), axis=1))
@@ -51,7 +50,7 @@ def loading_embedding(dataset):
 
     # 读取训练的关键字embedding
     word_dict = {}
-    with open('embedding\\' + dataset + '_keywords_embedding.csv', newline='', encoding='utf-8') as csvfile:
+    with open('embedding/' + dataset + '_keywords_embedding.csv', newline='', encoding='utf-8') as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
         next(reader)
         # 遍历csv文件中的每一行并将其添加到字典中
@@ -73,12 +72,22 @@ def loading_data(dataset, region_dict, word_dict, dataset_type):
 
     file_location = ""
     if dataset == 'tweet':
-        file_location = "dataset\\tweet\\" + dataset_type + "_data.csv"
+        file_location_true = "dataset/tweet/" + dataset + ".csv"
+        file_location_fake = "dataset/tweet/fake_data_" + dataset + ".csv"
     if dataset == "yelp":
-        file_location = "dataset\\yelp\\" + dataset_type + "_data.csv"
+        # file_location_true = "dataset/yelp/" + dataset + ".csv"
+        file_location_true = "dataset/yelp/validate.csv"
+        file_location_fake = "dataset/yelp/fake_data_" + dataset+ ".csv"
 
-    # 加载数据
-    with open(file_location, newline='', encoding='utf-8') as csvfile:
+    data_true = []
+    data_fake = []
+    head = ["data","label"]
+    data_true.append(head)
+    data_fake.append(head)
+    # 加载数据 真数据
+    print("loading data true")
+    i = 0
+    with open(file_location_true, newline='', encoding='utf-8') as csvfile:
         data_true = []
         label_true = []
         data_false = []
@@ -86,10 +95,9 @@ def loading_data(dataset, region_dict, word_dict, dataset_type):
         reader = csv.reader(csvfile)
         next(reader)  # 跳过表头
         for row in reader:
-            time_str, label = row[0], row[4]
+            time_str = row[0]
             lon, lat = row[3], row[2]
-            # print(lat,lon)
-            # print(time_str,label,lat,lon)
+            label = 1
             # 生成区域的embedding
             region_id = cal_region_id(lon, lat)
             if region_id in region_dict:
@@ -112,46 +120,61 @@ def loading_data(dataset, region_dict, word_dict, dataset_type):
                     word_vec = word_dict[keyword]
                 else:
                     raise ValueError
-                # if(1):
-                # print("-----------------------")
-                # print(len(time_vec),len(space_vec),len(word_vec))
                 a = np.concatenate((time_vec, space, word_vec))
-                # print(len(a))
-                # 将真假数据区分开来
-                if int(label) == 1:
-                    data_true.append(a)
-                    label_true.append([int(label)])
+                # if int(label) == 1:
+                #     data_true.append(a)
+                #     label_true.append([int(label)])
+                # else:
+                #     data_false.append(a)
+                #     label_false.append([int(label)])
+                row = []
+                row.append(a)
+                row.append(1)
+                data_true.append(row)
+            i += 1
+            print(i)
+
+    print("loading data fake")
+    # 加载数据 假数据
+    with open(file_location_fake, newline='', encoding='utf-8') as csvfile:
+        data_true = []
+        label_true = []
+        data_false = []
+        label_false = []
+        reader = csv.reader(csvfile)
+        next(reader)  # 跳过表头
+        for row in reader:
+            time_str = row[0]
+            lon, lat = row[3], row[2]
+            label = 0
+            # 生成区域的embedding
+            region_id = cal_region_id(lon, lat)
+            if region_id in region_dict:
+                space = region_dict[region_id]
+            else:
+                space = np.zeros(24)
+
+            # 生成时间的one-hot向量
+            time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+
+            time_bucket = time.hour * 2 + time.minute // 30
+            time_vec = np.eye(48)[time_bucket]
+
+            # 解析关键字，生成多条数据，每条数据的关键字不同
+            keywords = row[1].split()
+            for keyword in keywords:
+                # 将输入和输出添加到数组中
+                keyword = keyword.lower()
+                if keyword in word_dict.keys():
+                    word_vec = word_dict[keyword]
                 else:
-                    data_false.append(a)
-                    label_false.append([int(label)])
+                    raise ValueError
+                a = np.concatenate((time_vec, space, word_vec))
+                row = []
+                row.append(a)
+                row.append(0)
+                data_fake.append(a)
+    df_s = pd.DataFrame(data_true)  # 将列表数据转化为 一列
+    df_b = pd.DataFrame(data_fake)  # 将列表数据转化为 一列
+    return df_s,df_b
 
-    if dataset_type == "train":
-        # Todo 修改validation占比 并且让train 和 validation使用不同的正样本
-        print(f"{len(data_true)} true data for train model")
-        print(f"{len(data_false)} false data for train and validate model")
-
-        # Split the data into training (80%) and temporary (20%)
-        train_false_data, temp_false_data, train_false_labels, temp_false_labels = train_test_split(data_false,
-                                                                                                    label_false,
-                                                                                                    test_size=0.2,
-                                                                                                    random_state=42)
-
-        data_train = np.concatenate((data_true, train_false_data), axis=0)  # 拼接训练真假数据
-        label_train = np.concatenate((label_true, train_false_labels), axis=0)
-
-        train_dataset = CustomDataset(data_train, label_train)
-        train_false_data_cnt = np.count_nonzero(label_train == 0)  # train中负样本总数
-        train_true_data_cnt = label_train.size - train_false_data_cnt  # train中正样本总数
-        print(f"{train_false_data_cnt} false data for train model")
-        print(f"{train_true_data_cnt} true data for train model")
-
-        # 用于模型验证的数据集
-        data_validation = np.concatenate((data_true, temp_false_data), axis=0)  # 拼接val真假数据
-        label_validation = np.concatenate((label_true, temp_false_labels), axis=0)
-        val_dataset = CustomDataset(data_validation, label_validation)
-        # validation_false_data_cnt = np.count_nonzero(label_validation == 0)  # validation中负样本总数
-        # validation_true_data_cnt = label_validation.size - validation_false_data_cnt  # validation中正样本总数
-
-        train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=256, shuffle=False)
-        return train_loader, val_loader

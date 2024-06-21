@@ -1,5 +1,5 @@
-import math
 import pickle
+import sys
 import warnings
 
 import numpy as np
@@ -9,6 +9,8 @@ import torch.optim as optim
 from bayes_opt import BayesianOptimization
 from pybloom_live import BloomFilter
 from torch.utils.data import DataLoader, TensorDataset
+
+from lib import bf_util
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
@@ -44,6 +46,31 @@ class fpr_loss(nn.Module):
             bce_loss -= y_true * negative_sample_loss * 0.6
         if torch.any(torch.isnan(bce_loss)):
             raise ValueError('bce_loss contains NaN values after sub')
+        return torch.mean(bce_loss)
+
+
+class fpr_loss_1(nn.Module):
+    def __init__(self, true_data_count, bf_memory, epsilon=1e-8):
+        super(fpr_loss_1, self).__init__()
+        self.epsilon = epsilon  # 添加一个小常数以避免计算 log(0)
+        self.true_data_count = true_data_count
+        self.bf_memory = bf_memory
+        if self.bf_memory <= 0:
+            raise ValueError('memory is zero')
+
+    def forward(self, y_pred, y_true, val_fnr):
+        y_pred = torch.sigmoid(y_pred)
+
+        denominator = y_pred - y_pred * y_true + self.true_data_count * val_fnr
+        denominator = torch.clamp(denominator, min=self.epsilon)  # 设定一个非常小的正数作为下限
+        bf_rate = torch.pow(2, -(self.bf_memory / denominator * torch.log(torch.tensor(2.0))))
+
+        if torch.any(torch.isnan(bf_rate)):
+            raise ValueError('bf_rate contains NaN values')
+
+        bf_rate = torch.clamp(bf_rate, min=self.epsilon, max=1 - self.epsilon)
+        y_pred_adjusted = torch.where(y_pred < 0.5, y_pred + bf_rate / 2, y_pred)
+        bce_loss = - (y_true * torch.log(y_pred_adjusted) + (1 - y_true) * torch.log(1 - y_pred_adjusted))
         return torch.mean(bce_loss)
 
 
@@ -99,10 +126,22 @@ def get_model_size(model):
     return all_size_bit
 
 
-def train(model, train_loader, val_loader, num_epochs=100, output_acc=True):
+def bst_get_model_size(bst):
+    num_trees = bst.num_trees()
+
+    # 将模型转换为字符串
+    model_str = bst.dump_model()
+
+    # 计算模型字符串的大小
+    model_size = sys.getsizeof(model_str)
+    return model_size
+
+
+def train(model, bf_memory, n_true, train_loader, val_loader, num_epochs=100, output_acc=True):
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     best_fpr = 999
+    best_fnr = 1.0
     for epoch in range(num_epochs):
         model.train()  # 设置模型为训练模式
         running_loss = 0.0
@@ -173,6 +212,7 @@ def train(model, train_loader, val_loader, num_epochs=100, output_acc=True):
         val_FNR = val_false_negatives / validation_true_data_cnt
         if (val_FPR < best_fpr) and (val_FPR != 0):
             best_fpr = val_FPR
+            best_fnr = val_FNR
         if output_acc:
             print(
                 f"Epoch {epoch + 1} - Loss: {running_loss:.4f} - "
@@ -181,7 +221,8 @@ def train(model, train_loader, val_loader, num_epochs=100, output_acc=True):
                 f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} "
                 f"- val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
 
-    return 1 - best_fpr
+    return 1 - (best_fpr + (1 - best_fpr) * bf_util.get_fpr(n_items=best_fnr * n_true, bf_size=bf_memory))
+    # return 1 - best_fpr
 
 
 def train_with_fpr(model, train_loader, val_loader, all_memory,
@@ -230,6 +271,10 @@ def train_with_fpr(model, train_loader, val_loader, all_memory,
             train_true_data_cnt += (targets == 1).sum().item()
 
         train_accuracy = total_correct / total_samples
+        # print(f'train_false_positives: {train_false_positives}')
+        # print(f'train_false_data_cnt: {train_false_data_cnt}')
+        # print(f'train_false_negatives: {train_false_negatives}')
+        # print(f'train_true_data_cnt: {train_true_data_cnt}')
         train_FPR = train_false_positives / train_false_data_cnt
         train_FNR = train_false_negatives / train_true_data_cnt
 
@@ -242,6 +287,92 @@ def train_with_fpr(model, train_loader, val_loader, all_memory,
             for inputs, targets in val_loader:
                 inputs = inputs.to(device)
                 # targets = targets.to(device)
+                targets = targets.view(-1, 1).to(device)
+                targets = torch.tensor(targets)
+                outputs = model(inputs)
+                predicted = get_result(outputs)
+                loss = criterion(outputs, targets.float(), val_FNR)
+                val_running_loss += loss.item()
+                val_samples += targets.size(0)
+                targets = targets.int()
+                predicted = predicted.int()
+                val_correct += (predicted.int() == targets.int()).sum().item()
+                val_false_positives += ((predicted == 1) & (targets == 0)).sum().item()
+                val_false_negatives += ((predicted == 0) & (targets == 1)).sum().item()
+                validation_false_data_cnt += (targets == 0).sum().item()
+                validation_true_data_cnt += (targets == 1).sum().item()
+
+        val_accuracy = val_correct / val_samples
+        val_FPR = val_false_positives / validation_false_data_cnt
+        val_FNR = val_false_negatives / validation_true_data_cnt
+        if (val_FPR < best_fpr) and (val_FPR != 0):
+            best_fpr = val_FPR
+        if output_acc:
+            print(
+                f"Epoch {epoch + 1} - Loss: {running_loss:.4f} - "
+                f"Train Accuracy: {train_accuracy:.4f} - Val Accuracy: {val_accuracy:.4f}")
+            print(
+                f"Epoch {epoch + 1} - train_FPR: {train_FPR:.4f} - train_FNR: {train_FNR:.4f} "
+                f"- val_FPR: {val_FPR:.4f} - val_FNR: {val_FNR:.4f}")
+
+    return best_fpr
+
+
+def train_with_fpr_1(model, train_loader, val_loader, bf_memory,
+                     true_data_count, num_epochs=100, output_acc=True):
+    criterion = fpr_loss_1(true_data_count=true_data_count, bf_memory=bf_memory, epsilon=1e-12)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    val_FNR = (torch.rand(1) * 0.1).to(device)
+    best_fpr = 999
+    for epoch in range(num_epochs):
+        model.train()  # 设置模型为训练模式
+        running_loss = 0.0
+        total_correct = 0
+        total_samples = 0
+        train_false_positives = 0
+        train_false_negatives = 0
+        val_false_positives = 0
+        val_false_negatives = 0
+        train_false_data_cnt = 0
+        train_true_data_cnt = 0
+        validation_false_data_cnt = 0
+        validation_true_data_cnt = 0
+
+        for inputs, targets in train_loader:
+            inputs = inputs.to(device)
+            targets = targets.view(-1, 1).to(device)
+            targets = torch.tensor(targets, dtype=torch.int32)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            predicted = get_result(outputs)
+            total_samples += targets.size(0)
+            targets = torch.tensor(targets, dtype=torch.int64)
+
+            targets_float = targets.float()
+            loss = criterion(outputs, targets_float, val_FNR)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+            targets = targets.int()
+            predicted = predicted.int()
+            total_correct += (predicted == targets).sum().item()
+            train_false_positives += ((predicted == 1) & (targets == 0)).sum().item()
+            train_false_negatives += ((predicted == 0) & (targets == 1)).sum().item()
+            train_false_data_cnt += (targets == 0).sum().item()
+            train_true_data_cnt += (targets == 1).sum().item()
+
+        train_accuracy = total_correct / total_samples
+        train_FPR = train_false_positives / train_false_data_cnt
+        train_FNR = train_false_negatives / train_true_data_cnt
+
+        model.eval()  # 设置模型为评估模式
+        val_correct = 0
+        val_samples = 0
+        val_running_loss = 0
+
+        with torch.no_grad():
+            for inputs, targets in val_loader:
+                inputs = inputs.to(device)
                 targets = targets.view(-1, 1).to(device)
                 targets = torch.tensor(targets)
                 outputs = model(inputs)
@@ -304,11 +435,44 @@ def batch_predict_accuracy(model, X, batch_size=128):
     return all_predictions
 
 
+def lightgbm_batch_predict_accuracy(model, X, batch_size=128):
+    tensor_data = torch.tensor(X, dtype=torch.float32).to(device)
+
+    dataset = TensorDataset(tensor_data)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+
+    all_predictions = []
+
+    with torch.no_grad():
+        for inputs in dataloader:
+            inputs = inputs[0]  # unpack the tuple
+            outputs = model.predict(inputs)
+            predicted = (outputs > 0.5)
+            all_predictions.append(predicted)
+
+    # Concatenate all predictions into a single numpy array
+    all_predictions = np.concatenate(all_predictions).flatten()
+
+    return all_predictions
+
+
 def validate(model, X_train, y_train, X_test, y_test):
-    prediction_results = batch_predict_accuracy(model, X_train)
+    prediction_results = lightgbm_batch_predict_accuracy(model, X_train)
     indices_train = [i for i in range(len(X_train)) if prediction_results[i] == 0 and y_train[i] == 1]
-    prediction_results = batch_predict_accuracy(model, X_test)
+    prediction_results = lightgbm_batch_predict_accuracy(model, X_test)
     indices_test = [i for i in range(len(X_test)) if prediction_results[i] == 0 and y_test[i] == 1]
+    return np.concatenate((X_train[indices_train], X_test[indices_test]), axis=0)
+
+
+def lightgbm_validate(model, X_train, y_train, X_test, y_test, threshold):
+    # prediction_results = batch_predict_accuracy(model, X_train)
+    prediction_results = model.predict(X_train)
+    binary_predictions = (prediction_results > threshold).astype(int)
+    indices_train = [i for i in range(len(X_train)) if binary_predictions[i] == 0 and y_train[i] == 1]
+    # prediction_results = batch_predict_accuracy(model, X_test)
+    prediction_results = model.predict(X_test)
+    binary_predictions = (prediction_results > threshold).astype(int)
+    indices_test = [i for i in range(len(X_test)) if binary_predictions[i] == 0 and y_test[i] == 1]
     return np.concatenate((X_train[indices_train], X_test[indices_test]), axis=0)
 
 
@@ -317,21 +481,22 @@ def create_bloom_filter(dataset, bf_name, bf_size):
     print('n_items = ', n_items)
     print('bf_size = ', bf_size)
 
-    # 计算布隆过滤器的最佳误差率
-    # bf_size 以字节为单位
-    # m 是总的比特数，1 字节 = 8 比特
-    m = bf_size * 8
-    # k = m/n * ln(2)
-    # error_rate = (1 - exp(-k * n/m))^k
-    # 粗略估算最佳 k 值
-    best_k = round((m / n_items) * math.log(2))
-    print('best_k = ', best_k)
-    print(best_k * n_items / m)
-    optimal_error_rate = (1 - math.exp(-best_k * n_items / m)) ** best_k
-    print(f"Optimal error rate: {optimal_error_rate}")
+    # # 计算布隆过滤器的最佳误差率
+    # # bf_size 以字节为单位
+    # # m 是总的比特数，1 字节 = 8 比特
+    # m = bf_size * 8
+    # # k = m/n * ln(2)
+    # # error_rate = (1 - exp(-k * n/m))^k
+    # # 粗略估算最佳 k 值
+    # best_k = round((m / n_items) * math.log(2))
+    # print('best_k = ', best_k)
+    # print(best_k * n_items / m)
+    # optimal_error_rate = (1 - math.exp(-best_k * n_items / m)) ** best_k
+    # print(f"Optimal error rate: {optimal_error_rate}")
 
-    # 创建布隆过滤器
-    bloom_filter = BloomFilter(capacity=n_items, error_rate=optimal_error_rate)
+    # # 创建布隆过滤器
+    # bloom_filter = BloomFilter(capacity=n_items, error_rate=optimal_error_rate)
+    bloom_filter = BloomFilter(capacity=max(1, n_items), error_rate=bf_util.get_fpr(n_items, bf_size))
     for data in dataset:
         bloom_filter.add(data)
 
@@ -345,43 +510,101 @@ def create_bloom_filter(dataset, bf_name, bf_size):
 def query(model, bloom_filter, X_query, y_query):
     fn = 0
     fp = 0
-
+    cnt_ml = 0
+    cnt_bf = 0
     total = len(X_query)
-    print(f"total = {total}")
+    print(f"query count = {total}")
 
-    cnt_1 = 0
-    cnt_2 = 0
     prediction_results = batch_predict_accuracy(model, X_query)
     for i in range(total):
         input_data = X_query[i]
+        # true_label = 1 - y_query[i]
         true_label = y_query[i]
+        # print(f'true_label = {true_label}')
         # prediction = predict_single_row(model, input_data)
         prediction = prediction_results[i]
         if prediction == 1:
             if true_label == 0:
                 fp = fp + 1
-                cnt_1 = cnt_1 + 1
+                cnt_ml = cnt_ml + 1
         else:
             if input_data in bloom_filter:
                 if true_label == 0:
                     fp = fp + 1
-                    cnt_2 = cnt_2 + 1
+                    cnt_bf = cnt_bf + 1
             else:
                 if true_label == 1:
                     fn = fn + 1
-                    print(i, input_data)
+                    # print(i, input_data)
 
     print(f"fp: {fp}")
     print(f"total: {total}")
     print(f"fpr: {float(fp) / total}")
     print(f"fnr: {float(fn) / total}")
-    print(f"cnt_1: {cnt_1}")
-    print(f"cnt_2: {cnt_2}")
+    print(f"cnt_ml: {cnt_ml}")
+    print(f"cnt_bf: {cnt_bf}")
+    return float(fp) / total
+
+
+def bst_query(model, bloom_filter, X_query, y_query, threshold):
+    fn = 0
+    fp = 0
+    cnt_ml = 0
+    cnt_bf = 0
+    total = len(X_query)
+    print(f"query count = {total}")
+
+    # prediction_results = lightgbm_batch_predict_accuracy(model, X_query)
+    prediction_results = model.predict(X_query)
+
+    import matplotlib.pyplot as plt
+    bins = np.arange(0, 1.1, 0.1)  # 生成 [0, 0.1, 0.2, ..., 1.0] 的区间
+    plt.hist(prediction_results, bins=bins, edgecolor='black', alpha=0.7)
+    plt.xlabel('Prediction value')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of All Predictions')
+    plt.xticks(bins)
+    plt.grid(axis='y', alpha=0.75)
+    plt.show()
+
+    binary_predictions = (prediction_results > threshold).astype(int)
+
+    print(prediction_results)
+    print(binary_predictions)
+
+    for i in range(total):
+        input_data = X_query[i]
+        # true_label = 1 - y_query[i]
+        true_label = y_query[i]
+        # print(f'true_label = {true_label}')
+        # prediction = predict_single_row(model, input_data)
+        prediction = binary_predictions[i]
+        if prediction == 1:
+            if true_label == 0:
+                fp = fp + 1
+                cnt_ml = cnt_ml + 1
+        else:
+            if input_data in bloom_filter:
+                if true_label == 0:
+                    fp = fp + 1
+                    cnt_bf = cnt_bf + 1
+            else:
+                if true_label == 1:
+                    fn = fn + 1
+                    # print(i, input_data)
+
+    print(f"fp: {fp}")
+    print(f"total: {total}")
+    print(f"fpr: {float(fp) / total}")
+    print(f"fnr: {float(fn) / total}")
+    print(f"cnt_ml: {cnt_ml}")
+    print(f"cnt_bf: {cnt_bf}")
+    return float(fp) / total
 
 
 class Bayes_Optimizer:
-    def __init__(self, input_dim, output_dim, train_loader, val_loader, all_record, all_memory, learning_rate=0.005,
-                 hidden_units=(8, 512)):
+    def __init__(self, input_dim, output_dim, train_loader, val_loader, all_record, all_memory, true_data_count,
+                 learning_rate=0.001, hidden_units=(8, 512)):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.train_loader = train_loader
@@ -391,6 +614,7 @@ class Bayes_Optimizer:
         self.best_model = None
         self.all_record = all_record
         self.all_memory = all_memory
+        self.true_data_count = true_data_count
 
     def target_function(self, num_hidden_units):
         # 确保 num_hidden_units 是整数
@@ -400,7 +624,8 @@ class Bayes_Optimizer:
         model = SimpleNetwork([num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
 
         # 训练模型
-        return train(model, train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10, output_acc=True)
+        return train(model, bf_memory=self.all_memory - get_model_size(model), n_true=self.true_data_count,
+                     train_loader=self.train_loader, val_loader=self.val_loader, num_epochs=10, output_acc=False)
 
     def optimize(self):
         optimizer = BayesianOptimization(
@@ -416,4 +641,5 @@ class Bayes_Optimizer:
         # 使用最佳参数重新训练模型
         best_model = SimpleNetwork([best_num_hidden_units], input_dim=self.input_dim, output_dim=self.output_dim)
         print(optimizer.max)
+        print(f"choose {best_num_hidden_units} hidden units")
         return best_model

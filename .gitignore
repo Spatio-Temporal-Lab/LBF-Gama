@@ -1,6 +1,5 @@
 *.csv
 *.bin
 *.zip
-*.pth
-*.pkl
 .idea/
+.txt

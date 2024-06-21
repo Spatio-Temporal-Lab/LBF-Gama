@@ -372,7 +372,7 @@ def hash_encode(category):
     return int(hash_object.hexdigest(), 16) % (10 ** 8)
 
 
-urls_data = pd.read_csv('dataset/malicious_phish.csv')
+urls_data = pd.read_csv('../dataset/malicious_phish.csv')
 urls_data['url'] = urls_data['url'].replace('www.', '', regex=True)
 urls_data['pri_domain'] = urls_data['url'].apply(lambda x: extract_pri_domain(x))
 urls_data["url_type"] = urls_data["type"].replace({
@@ -394,7 +394,8 @@ urls_data['root_domain'] = urls_data['pri_domain'].apply(lambda x: extract_root_
 urls_data['abnormal_url'] = urls_data['url'].apply(lambda x: abnormal_url(x))
 urls_data.fillna(0, inplace=True)
 urls_data.drop_duplicates(inplace=True)
-data = urls_data.drop(columns=['url', 'type', 'pri_domain'])
+# data = urls_data.drop(columns=['url', 'type', 'pri_domain'])
+data = urls_data.drop(columns=['type', 'pri_domain'])
 data = data[data['root_domain'] != '0']
 data['root_domain'] = data['root_domain'].apply(hash_encode)
 data['url_region'] = data['url_region'].apply(hash_encode)
@@ -403,4 +404,4 @@ counts = urls_data["url_type"].value_counts()
 malicious_cnt = counts[1]
 benign_cnt = counts[0]
 
-data.to_csv('dataset/train.csv', index=False)
+data.to_csv('../dataset/url.csv', index=False)
