@@ -37,7 +37,7 @@ def cal_region_id(lon, lat, x_min=27, x_max=54, y_min=-120, y_max=-74, one_kilo=
 
 def loading_embedding(dataset):
     # 加载区域的编码信息
-    data = pd.read_csv('embedding/region_embedding.csv')
+    data = pd.read_csv('embedding/region_embedding_new.csv')
     data['Merged_List'] = np.array(data[['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14',
                                          '15', '16', '17', '18', '19', '20', '21', '22', '23']].apply(
         lambda x: x.tolist(), axis=1))

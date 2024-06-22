@@ -62,16 +62,15 @@ def yelp_embedding(data_train, word_dict=word_dict, region_dict=region_dict):
 
     # keywords embedding
     data_train['keywords'] = data_train['keywords'].apply(lib.network.keywords_embedding, args=(word_dict,))
-    print(data_train.head())
-    print(data_train)
+
     # 生成一个用于神经网络输入的dataframe:embedding
     embedding = pd.DataFrame()
     embedding['embedding'] = data_train.apply(lib.network.to_embedding, axis=1)
-    print(embedding)
+    #print(embedding)
     y = data_train['is_in']
     del data_train
     X = pd.DataFrame(embedding['embedding'].apply(pd.Series))
-    print(X)
+    #print(X)
     return X, y, insert
 
 
@@ -101,63 +100,90 @@ params = {
     'learning_rate': 0.05,
     'feature_fraction': 0.9,
 }
-all_memory = 32 * 1024  # tweet模型大小：5 * 1024 * 1024
+all_memory = 512 * 1024  # tweet模型大小：5 * 1024 * 1024
 
 
-def evaluate_threshold(thresh, y_pred, y_true, bf_bytes, thresh_fpr_map):
-    y_pred_bin = (y_pred > thresh).astype(int)
-    fp_lgb = np.sum((y_pred_bin == 1) & (y_true == 0))
-    bf_count = np.sum((y_pred_bin == 0) & (y_true == 1)) * float(n_true) / n_test
-    fpr_bf = lib.bf_util.get_fpr(bf_count, bf_bytes)
-    fpr_lgb = fp_lgb / np.sum(y_true == 0)
-    fpr_lbf = fpr_lgb + (1 - fpr_lgb) * fpr_bf
-    if thresh not in thresh_fpr_map or fpr_lbf < thresh_fpr_map[thresh]:
-        thresh_fpr_map[thresh] = fpr_lbf
-    return 1 - fpr_lbf
+def evaluate_thresholds(prediction_results, y_true, bf_bytes):
+    sorted_indices = np.argsort(prediction_results)
+    sorted_predictions = prediction_results[sorted_indices]
+    sorted_true = y_true[sorted_indices]
+
+    print(sorted_predictions)
+
+    total_positives = np.sum(sorted_true)
+    print(f'total positives = {total_positives}')
+    total_negatives = len(sorted_true) - total_positives
+    print(f'total negatives = {total_negatives}')
+
+    # fp = 0
+    # tp = total_positives
+    fp = total_negatives
+    tp = 0
+    best_thresh = 0
+    best_fpr_lbf = 1.0
+
+    unique_sorted_predictions = np.unique(sorted_predictions)
+
+    j = 0
+    for i in range(len(unique_sorted_predictions)):
+        thresh = unique_sorted_predictions[i]
+
+        while j < len(sorted_predictions) and sorted_predictions[j] == thresh:
+            if sorted_true[j] == 1:
+                tp += 1
+            else:
+                fp -= 1
+            j += 1
+
+        # bf_count = tp * float(n_true) / n_test
+        bf_count = tp
+        fpr_bf = lib.bf_util.get_fpr(bf_count, bf_bytes)
+        fpr_lgb = fp / total_negatives
+        fpr_lbf = fpr_lgb + (1 - fpr_lgb) * fpr_bf
+
+        if fpr_lbf < best_fpr_lbf:
+            best_thresh = thresh
+            best_fpr_lbf = fpr_lbf
+
+    print(f'best thresh = {best_thresh} and best fpr = {best_fpr_lbf}')
+    return best_thresh, best_fpr_lbf
 
 
 bst = None
 best_bst = None
 best_fpr = 1.0
 best_threshold = 0.5
-epoch_each = 2
+epoch_each = 1
 epoch_now = 0
 epoch_max = 20
 best_epoch = 0
+
 for i in range(int(epoch_max / epoch_each)):
     bst = lgb.train(params, train_data, epoch_each, valid_sets=[test_data], init_model=bst, keep_training_booster=True)
-    prediction_results = bst.predict(X_test)
     bf_bytes = all_memory - lib.lgb_url.lgb_get_model_size(bst)
     if bf_bytes <= 0:
         break
+    # prediction_results = bst.predict(X_test)
 
-    thresh_fpr_map = {}
-    # 定义搜索空间
-    pbounds = {'thresh': (0.0, 1.0)}
+    # 对训练集进行预测
+    train_pred = bst.predict(X_train)
+    test_pred = bst.predict(X_test)
 
-    # 定义优化器
-    optimizer = BayesianOptimization(
-        f=lambda thresh: evaluate_threshold(thresh, prediction_results, y_test, bf_bytes, thresh_fpr_map),
-        pbounds=pbounds,
-        random_state=42,
-        allow_duplicate_points=True
-    )
+    # 拼接预测结果
+    all_predictions = np.concatenate([train_pred, test_pred])
+    all_true_labels = np.concatenate([y_train, y_test])
+    best_thresh, best_fpr_lbf = evaluate_thresholds(all_predictions, all_true_labels, bf_bytes)
 
-    # 进行优化
-    optimizer.maximize(n_iter=20)
+    # best_thresh, best_fpr_lbf = evaluate_thresholds(prediction_results, y_test, bf_bytes)
 
-    # 最优阈值
-    best_thresh = optimizer.max['params']['thresh']
-    fpr_lbf = thresh_fpr_map[best_thresh]
-    if best_bst is None or fpr_lbf < best_fpr:
+    # 保存最佳模型
+    if best_bst is None or best_fpr_lbf < best_fpr:
         best_bst = bst.__copy__()
-        # bst.save_model('best_model.txt')
         best_threshold = best_thresh
-        best_fpr = fpr_lbf
+        best_fpr = best_fpr_lbf
         best_epoch = epoch_now
 
     epoch_now += epoch_each
-    thresh_fpr_map.clear()
 
 model_size = lib.lgb_url.lgb_get_model_size(best_bst)
 print("模型在内存中所占用的大小（字节）:", model_size)
@@ -166,7 +192,7 @@ print(f"best epoch:", best_epoch)
 
 data_negative = lib.lgb_url.lgb_validate_url(best_bst, X_train, y_train, train_insert, X_test, y_test, test_insert,
                                              best_threshold)
-
+print(f"{len(data_negative)} insert into bloom filter")
 bloom_size = all_memory - model_size
 
 bloom_filter = lib.lgb_url.create_bloom_filter(dataset=data_negative, bf_size=bloom_size)
