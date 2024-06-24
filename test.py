@@ -1,3 +1,3 @@
-import model_generate
+import model_generate_yelp
 
-model_generate.get_model(20 * 1024)
+model_generate_yelp.get_model(20 * 1024)

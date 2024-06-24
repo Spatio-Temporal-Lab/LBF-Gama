@@ -2,13 +2,9 @@ import lightgbm as lgb
 import pandas as pd
 import lib.network
 import lib.data_processing
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, accuracy_score
 import numpy as np
-import pickle
 import lib.lgb_url
 import lib.bf_util
-from bayes_opt import BayesianOptimization
 
 '''
 df = pd.read_csv('dataset/yelp/query_data.csv')
