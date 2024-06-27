@@ -1,10 +1,11 @@
+import time
+
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
 import lib.bf_util
 import lib.lgb_url
-
 
 df_train = pd.read_csv('dataset/url_train.csv')
 df_test = pd.read_csv('dataset/url_test.csv')
@@ -24,7 +25,6 @@ y_query = df_query['url_type'].values.astype(np.float32)
 train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
 test_data = lgb.Dataset(X_test, label=y_test, free_raw_data=False)
 
-
 # 设置参数
 params = {
     'objective': 'binary',
@@ -36,6 +36,7 @@ params = {
 all_memory = 32 * 1024  # tweet模型大小：5 * 1024 * 1024
 
 n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
+n_false = df_train[df_train['url_type'] == 0].shape[0] + df_test[df_test['url_type'] == 0].shape[0]
 n_test = len(df_test)
 
 
@@ -44,37 +45,29 @@ def evaluate_thresholds(prediction_results, y_true, bf_bytes):
     sorted_predictions = prediction_results[sorted_indices]
     sorted_true = y_true[sorted_indices]
 
-    print(sorted_predictions)
-
-    total_positives = np.sum(sorted_true)
-    print(f'total positives = {total_positives}')
-    total_negatives = len(sorted_true) - total_positives
-    print(f'total negatives = {total_negatives}')
-
-    # fp = 0
-    # tp = total_positives
-    fp = total_negatives
+    fp = n_false
     tp = 0
     best_thresh = 0
     best_fpr_lbf = 1.0
 
-    unique_sorted_predictions = np.unique(sorted_predictions)
+    unique_sorted_predictions, idx = np.unique(sorted_predictions, return_index=True)
 
-    j = 0
-    for i in range(len(unique_sorted_predictions)):
+    n = len(unique_sorted_predictions)
+    for i in range(n):
         thresh = unique_sorted_predictions[i]
 
-        while j < len(sorted_predictions) and sorted_predictions[j] == thresh:
-            if sorted_true[j] == 1:
-                tp += 1
-            else:
-                fp -= 1
-            j += 1
+        if i < n - 1:
+            count_1 = np.sum(sorted_true[idx[i]:idx[i+1]])
+            tp += count_1
+            fp -= idx[i+1] - idx[i] - count_1
+        else:
+            count_1 = np.sum(sorted_true[idx[i]:n])
+            tp += count_1
+            fp -= n - idx[i] - count_1
 
-        # bf_count = tp * float(n_true) / n_test
         bf_count = tp
         fpr_bf = lib.bf_util.get_fpr(bf_count, bf_bytes)
-        fpr_lgb = fp / total_negatives
+        fpr_lgb = fp / n_false
         fpr_lbf = fpr_lgb + (1 - fpr_lgb) * fpr_bf
 
         if fpr_lbf < best_fpr_lbf:
@@ -84,6 +77,82 @@ def evaluate_thresholds(prediction_results, y_true, bf_bytes):
     print(f'best thresh = {best_thresh} and best fpr = {best_fpr_lbf}')
     return best_thresh, best_fpr_lbf
 
+
+# def evaluate_thresholds(prediction_results, y_true, bf_bytes):
+#     sorted_indices = np.argsort(prediction_results)
+#     sorted_predictions = prediction_results[sorted_indices]
+#     sorted_true = y_true[sorted_indices]
+#
+#     fp = n_false
+#     tp = 0
+#     best_thresh = 0
+#     best_fpr_lbf = 1.0
+#
+#     unique_sorted_predictions = np.unique(sorted_predictions)
+#
+#     j = 0
+#     for i in range(len(unique_sorted_predictions)):
+#         thresh = unique_sorted_predictions[i]
+#
+#         while j < len(sorted_predictions) and sorted_predictions[j] == thresh:
+#             if sorted_true[j] == 1:
+#                 tp += 1
+#             else:
+#                 fp -= 1
+#             j += 1
+#
+#         bf_count = tp
+#         fpr_bf = lib.bf_util.get_fpr(bf_count, bf_bytes)
+#         fpr_lgb = fp / n_false
+#         fpr_lbf = fpr_lgb + (1 - fpr_lgb) * fpr_bf
+#
+#         if fpr_lbf < best_fpr_lbf:
+#             best_thresh = thresh
+#             best_fpr_lbf = fpr_lbf
+#
+#     print(f'best thresh = {best_thresh} and best fpr = {best_fpr_lbf}')
+#     return best_thresh, best_fpr_lbf
+
+
+# def evaluate_thresholds(prediction_results, y_true, bf_bytes):
+#     # 量化预测值并转换为整数
+#     quantized_predictions = np.round(prediction_results * 1000).astype(int)
+#
+#     # # 获取最大值和最小值以确定桶的范围
+#     max_pred = np.max(quantized_predictions)
+#     min_pred = np.min(quantized_predictions)
+#     #
+#     # # 初始化桶的数量
+#     num_buckets = max_pred - min_pred + 1
+#     tp_count = np.zeros(num_buckets, dtype=int)
+#     fp_count = np.zeros(num_buckets, dtype=int)
+#
+#     indices = quantized_predictions - min_pred
+#     np.add.at(tp_count, indices[y_true == 1], 1)
+#     np.add.at(fp_count, indices[y_true == 0], 1)
+#     best_thresh = 0
+#     best_fpr_lbf = 1.0
+#
+#     tp = 0
+#     fp = n_false
+#     for i in range(num_buckets):
+#         tp += tp_count[i]
+#         fp -= fp_count[i]
+#
+#         bf_count = tp
+#         fpr_bf = lib.bf_util.get_fpr(bf_count, bf_bytes)
+#         fpr_lgb = fp / n_false
+#         fpr_lbf = fpr_lgb + (1 - fpr_lgb) * fpr_bf
+#
+#         if fpr_lbf < best_fpr_lbf:
+#             best_thresh = (i + min_pred) / 1000.0
+#             best_fpr_lbf = fpr_lbf
+#
+#     print(f'best thresh = {best_thresh} and best fpr = {best_fpr_lbf}')
+#     return best_thresh, best_fpr_lbf
+
+
+start_time = time.perf_counter_ns()
 
 bst = None
 best_bst = None
@@ -120,13 +189,16 @@ for i in range(int(epoch_max / epoch_each)):
 
     epoch_now += epoch_each
 
+end_time = time.perf_counter_ns()
+print(f'use {(end_time - start_time) / 1000000}ms')
 
 model_size = lib.lgb_url.lgb_get_model_size(best_bst)
 print("模型在内存中所占用的大小（字节）:", model_size)
 print(f"best threshold:", best_threshold)
 print(f"best epoch:", best_epoch)
 
-data_negative = lib.lgb_url.lgb_validate_url(best_bst, X_train, y_train, train_urls, X_test, y_test, test_urls, best_threshold)
+data_negative = lib.lgb_url.lgb_validate_url(best_bst, X_train, y_train, train_urls, X_test, y_test, test_urls,
+                                             best_threshold)
 print(f"{len(data_negative)} insert into bloom filter")
 bloom_size = all_memory - model_size
 
