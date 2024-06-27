@@ -149,7 +149,8 @@ def run(c_min, c_max, num_group_min, num_group_max, R_sum, path, model, X_query,
     data = pd.read_csv(path)
     negative_sample = data.loc[(data['label'] == 0)]
     positive_sample = data.loc[(data['label'] == 1)]
-    train_negative = negative_sample.sample(frac=0.8)
+    # train_negative = negative_sample.sample(frac=0.8)
+    train_negative = negative_sample
 
     bloom_filter_opt, thresholds_opt, k_max_opt = Find_Optimal_Parameters(c_min, c_max, num_group_min, num_group_max,
                                                                           R_sum, train_negative, positive_sample)
