@@ -1,11 +1,11 @@
 import pandas as pd
 
-from PLBF_M import PLBF_M
-from utils.ExpectedFPR import ExpectedFPR
-from utils.OptimalFPR_M import OptimalFPR_M
-from utils.SpaceUsed import SpaceUsed
-from utils.ThresMaxDivDP import MaxDivDP, ThresMaxDiv
-from utils.const import INF
+from .PLBF_M import PLBF_M
+from .utils.ExpectedFPR import ExpectedFPR
+from .utils.OptimalFPR_M import OptimalFPR_M
+from .utils.SpaceUsed import SpaceUsed
+from .utils.ThresMaxDivDP import MaxDivDP, ThresMaxDiv
+from .utils.const import INF
 
 
 class FastPLBF_M(PLBF_M):
@@ -39,10 +39,11 @@ class FastPLBF_M(PLBF_M):
         self.N = N
         self.k = k
         self.n = len(pos_keys)
+        self.fpr = 0.0
 
         segment_thre_list, g, h = self.divide_into_segments(pos_scores, neg_scores)
         self.find_best_t_and_f(segment_thre_list, g, h)
-        self.insert_keys(pos_keys, pos_scores)
+        self.fpr = self.insert_keys(pos_keys, pos_scores, h)
 
     def find_best_t_and_f(self, segment_thre_list, g, h):
         minExpectedFPR = INF
@@ -60,9 +61,19 @@ class FastPLBF_M(PLBF_M):
                 t_best = t
                 f_best = f
 
-        self.t = t_best
-        self.f = f_best
-        self.memory_usage_of_backup_bf = SpaceUsed(g, h, t, f, self.n)
+        # self.t = t_best
+        # self.f = f_best
+        # self.memory_usage_of_backup_bf = SpaceUsed(g, h, self.t, self.f, self.n)
+        if t_best is not None:
+            self.t = t_best
+            self.f = f_best
+            self.memory_usage_of_backup_bf = SpaceUsed(g, h, self.t, self.f, self.n)
+        else:
+            # 处理 t_best 为 None 的情况，例如抛出一个异常或设置默认值
+            raise ValueError("No valid threshold (t) was found.")
+
+    def get_fpr(self):
+        return self.fpr
 
 
 def run(path, query_path, M, N, k):
@@ -90,6 +101,7 @@ def run(path, query_path, M, N, k):
         if plbf.contains(key, score):
             fp_cnt += 1
     print(f"fpr: {float(fp_cnt) / total}")
+    print(f"Theoretical false positive rate: {plbf.get_fpr()}")
     return float(fp_cnt) / total
 
 # if __name__ == "__main__":

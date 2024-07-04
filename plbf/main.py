@@ -3,8 +3,7 @@ import numpy as np
 import pandas as pd
 
 import lib.lgb_url
-import FastPLBF_M
-
+from plbf import FastPLBF_M
 
 df_train = pd.read_csv('../dataset/url_train.csv')
 df_test = pd.read_csv('../dataset/url_test.csv')
