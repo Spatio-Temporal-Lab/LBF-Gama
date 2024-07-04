@@ -82,7 +82,6 @@ class PLBF_M:
             region_idx = self.get_region_idx(score)
             pos_cnt_list[region_idx] += 1
         neg_pr_list = [h.acc_range(self.t[i - 1], self.t[i]) for i in range(1, self.k + 1)]
-        print(len(neg_pr_list))
 
         self.backup_bloom_filters = [None for _ in range(self.k + 1)]
         for i in range(1, self.k + 1):

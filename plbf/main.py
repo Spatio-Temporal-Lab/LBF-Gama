@@ -55,12 +55,7 @@ query_results.to_csv('query_results.csv', index=False)
 model_size = lib.lgb_url.lgb_get_model_size(bst)
 print("模型在内存中所占用的大小（字节）:", model_size)
 
-initial_size = 32 * 1024
-max_size = 512 * 1024
-
-# 循环，从32开始，每次乘以2，直到512
-size = initial_size
-while size <= max_size:
+for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
     bloom_size = size - model_size
     print(bloom_size)
     bloom_size = bloom_size * 8.0
@@ -71,5 +66,3 @@ while size <= max_size:
         N=50,
         k=5,
     )
-
-    size *= 2

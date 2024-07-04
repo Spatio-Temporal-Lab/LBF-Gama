@@ -33,7 +33,6 @@ params = {
     'learning_rate': 0.05,
     'feature_fraction': 0.9,
 }
-all_memory = 32 * 1024  # tweet模型大小：5 * 1024 * 1024
 
 n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
 n_false = df_train[df_train['url_type'] == 0].shape[0] + df_test[df_test['url_type'] == 0].shape[0]
@@ -154,6 +153,7 @@ def evaluate_thresholds(prediction_results, y_true, bf_bytes):
 
 start_time = time.perf_counter_ns()
 
+size = 320 * 1024
 bst = None
 best_bst = None
 best_fpr = 1.0
@@ -164,7 +164,7 @@ epoch_max = 20
 best_epoch = 0
 for i in range(int(epoch_max / epoch_each)):
     bst = lgb.train(params, train_data, epoch_each, valid_sets=[test_data], init_model=bst, keep_training_booster=True)
-    bf_bytes = all_memory - lib.lgb_url.lgb_get_model_size(bst)
+    bf_bytes = size - lib.lgb_url.lgb_get_model_size(bst)
     if bf_bytes <= 0:
         break
     # prediction_results = bst.predict(X_test)
@@ -200,7 +200,7 @@ print(f"best epoch:", best_epoch)
 data_negative = lib.lgb_url.lgb_validate_url(best_bst, X_train, y_train, train_urls, X_test, y_test, test_urls,
                                              best_threshold)
 print(f"{len(data_negative)} insert into bloom filter")
-bloom_size = all_memory - model_size
+bloom_size = size - model_size
 
 bloom_filter = lib.lgb_url.create_bloom_filter(dataset=data_negative, bf_size=bloom_size)
 

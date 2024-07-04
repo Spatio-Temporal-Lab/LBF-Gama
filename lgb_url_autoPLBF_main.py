@@ -11,7 +11,6 @@ df_train = pd.read_csv('dataset/url_train.csv')
 df_test = pd.read_csv('dataset/url_test.csv')
 df_query = pd.read_csv('dataset/url_query.csv')
 
-
 # 筛选出正类样本的URLs
 positive_train_urls = df_train[df_train['url_type'] == 1]['url']
 positive_test_urls = df_test[df_test['url_type'] == 1]['url']
@@ -21,7 +20,6 @@ positive_urls = pd.concat([positive_train_urls, positive_test_urls])
 
 # 转换成list
 positive_urls_list = positive_urls.tolist()
-
 
 query_urls = df_query['url']
 
@@ -46,14 +44,12 @@ params = {
     'learning_rate': 0.05,
     'feature_fraction': 0.9,
 }
-all_memory = 256 * 1024  # tweet模型大小：5 * 1024 * 1024
 
 n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
 n_false = df_train[df_train['url_type'] == 0].shape[0] + df_test[df_test['url_type'] == 0].shape[0]
 n_test = len(df_test)
 
-start_time = time.perf_counter_ns()
-
+size = 64 * 1024
 bst = None
 best_bst = None
 best_fpr = 1.0
@@ -62,10 +58,13 @@ epoch_now = 0
 epoch_max = 20
 best_epoch = 0
 best_plbf = None
+
+start_time = time.perf_counter_ns()
 for i in range(int(epoch_max / epoch_each)):
-    bst = lgb.train(params, train_data, epoch_each, valid_sets=[test_data], init_model=bst, keep_training_booster=True)
+    bst = lgb.train(params, train_data, epoch_each, valid_sets=[test_data], init_model=bst,
+                    keep_training_booster=True)
     epoch_now += epoch_each
-    bf_bytes = all_memory - lib.lgb_url.lgb_get_model_size(bst)
+    bf_bytes = size - lib.lgb_url.lgb_get_model_size(bst)
     if bf_bytes <= 0:
         break
     if epoch_now < 2:
@@ -73,14 +72,13 @@ for i in range(int(epoch_max / epoch_each)):
 
     pos_scores = bst.predict(positive_samples).tolist()
     neg_scores = bst.predict(negative_samples).tolist()
-    plbf = FastPLBF_M(positive_urls_list, pos_scores, neg_scores, bf_bytes*8.0, 50, 5)
+    plbf = FastPLBF_M(positive_urls_list, pos_scores, neg_scores, bf_bytes * 8.0, 50, 5)
     fpr = plbf.get_fpr()
     if best_bst is None or fpr < best_fpr:
         best_bst = bst.__copy__()
         best_fpr = fpr
         best_epoch = epoch_now
         best_plbf = plbf
-
 
 end_time = time.perf_counter_ns()
 print(f'use {(end_time - start_time) / 1000000}ms')
