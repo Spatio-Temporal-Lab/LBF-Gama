@@ -27,7 +27,7 @@ n_test = len(df_test)
 
 
 def evaluate_threshold(thresh, y_pred, y_true, bf_bytes):
-    y_pred_bin = (y_pred >= thresh).astype(int)
+    y_pred_bin = (y_pred > thresh).astype(int)
     fp_lgb = np.sum((y_pred_bin == 1) & (y_true == 0))
     bf_count = np.sum((y_pred_bin == 0) & (y_true == 1))
     fpr_bf = lib.bf_util.get_fpr(bf_count, bf_bytes)
