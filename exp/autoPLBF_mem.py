@@ -122,4 +122,4 @@ for key, score in zip(query_neg_keys, query_neg_scores):
 print(f"fpr: {float(fp_cnt) / total}")
 ws.cell(row=epoch_now, column=1, value="our")  # 编号列
 ws.cell(row=epoch_now, column=2, value=str(float(fp_cnt) / total))  # 浮点数列，转换为字符串
-wb.save("exp2_url_autoPLBF.xlsx")
+wb.save("results/exp2_url_autoPLBF.xlsx")

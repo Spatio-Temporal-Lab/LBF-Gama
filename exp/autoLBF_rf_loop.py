@@ -200,4 +200,4 @@ for epoch_now in range(epoch_max):
 
 end_time = time.perf_counter_ns()
 print(f'use {(end_time - start_time) / 1000000}ms')
-wb.save('exp3_url_rf_lbf')
+wb.save('results/exp3_url_rf_lbf')

@@ -159,4 +159,4 @@ print("memory of learned model: ", model_size)
 fpr = lib.lgb_url.lgb_query_url(best_bst, bloom_filter, X_query, y_query, query_urls, best_threshold, False)
 ws.cell(row=epoch_now, column=1, value="our")  # 编号列
 ws.cell(row=epoch_now, column=2, value=str(fpr))  # 浮点数列，转换为字符串
-wb.save("exp2_url_autoLBF.xlsx")
+wb.save("results/exp2_url_autoLBF.xlsx")
