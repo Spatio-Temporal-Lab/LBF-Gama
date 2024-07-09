@@ -3,3 +3,5 @@
 *.zip
 .idea/
 .txt
+*.pyc
+best_bst_20480

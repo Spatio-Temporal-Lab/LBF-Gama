@@ -73,3 +73,6 @@ def get_model(max_model_memory):
     print("模型在内存中所占用的大小（字节）:", model_size)
     bst.save_model('best_bst_' + str(max_model_memory))
     return bst
+
+
+get_model(20 * 1024)
