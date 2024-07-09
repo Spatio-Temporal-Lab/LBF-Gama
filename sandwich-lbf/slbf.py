@@ -120,7 +120,7 @@ def run(R_sum, path, model, X_query, y_query, query_urls):
     positive_sample = data.loc[(data['label'] == 1)]
     # train_negative = negative_sample.sample(frac=0.8)
     train_negative = negative_sample
-
+    print("start running")
     slbf_opt = get_slbf_opt(positive_sample, train_negative, R_sum)
     fn = 0
     fp = 0

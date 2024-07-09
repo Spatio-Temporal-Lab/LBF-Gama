@@ -67,6 +67,8 @@ def evaluate_thresholds(prediction_results, y_true, bf_bytes):
         bf_count = tp
         fpr_bf = lib.bf_util.get_fpr(bf_count, bf_bytes)
         fpr_lgb = fp / n_false
+        if fp>n_false:
+            print(fp,n_false)
         fpr_lbf = fpr_lgb + (1 - fpr_lgb) * fpr_bf
 
         if fpr_lbf < best_fpr_lbf:

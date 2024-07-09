@@ -245,6 +245,7 @@ def keywords_embedding(keyword, word_dict):
         # cnt用于记录没找到对应的关键字的
         # cnt+=1
         # print(cnt)
+        print("not found")
         return np.zeros(300)
 
 
@@ -257,7 +258,7 @@ def insert(ck):
     time_bucket = time.hour * 2 + time.minute // 30
     time = str(time.year) + str(time.month).zfill(2) + str(time.day).zfill(2) + str(time_bucket).zfill(2)
     # print(time)
-    region_id = str(cal_region_id(lat, lon)).zfill(8)
+    region_id = str(cal_region_id(lat=lat, lon=lon)).zfill(8)
     try:
         keywords = keywords.replace(" ", "")
     except AttributeError:
