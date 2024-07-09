@@ -270,7 +270,10 @@ def to_embedding(d):
     region = np.array(d['region'])
     time = np.array(d['timestamp'])
     keywords = np.array(d['keywords'])
-    embedding = torch.tensor(np.concatenate((time, region, keywords)), dtype=torch.float32)
+    #print(keywords)
+    # embedding = torch.tensor(np.concatenate((time, region, keywords)), dtype=torch.float32)
+    embedding = np.concatenate((time, region, keywords))
+
     # print(embedding.shape)
     return embedding
 
