@@ -49,7 +49,7 @@ class PLBF_M:
 
         segment_thre_list, g, h = self.divide_into_segments(pos_scores, neg_scores)
         self.find_best_t_and_f(segment_thre_list, g, h)
-        self.insert_keys(pos_keys, pos_scores, h)
+        self.insert_keys(pos_keys, pos_scores)
 
     def divide_into_segments(self, pos_scores: list[float], neg_scores: list[float]):
         segment_thre_list = [i / self.N for i in range(self.N + 1)]
@@ -76,28 +76,28 @@ class PLBF_M:
         self.f = f_best
         self.memory_usage_of_backup_bf = SpaceUsed(g, h, t, f, self.n)
 
-    def insert_keys(self, pos_keys: list, pos_scores: list[float], h):
+    def insert_keys(self, pos_keys: list, pos_scores: list[float]):
         pos_cnt_list = [0 for _ in range(self.k + 1)]
         for score in pos_scores:
             region_idx = self.get_region_idx(score)
             pos_cnt_list[region_idx] += 1
-        neg_pr_list = [h.acc_range(self.t[i - 1], self.t[i]) for i in range(1, self.k + 1)]
+        # neg_pr_list = [h.acc_range(self.t[i - 1], self.t[i]) for i in range(1, self.k + 1)]
 
         self.backup_bloom_filters = [None for _ in range(self.k + 1)]
         for i in range(1, self.k + 1):
             if 0 < self.f[i] < 1:
                 self.backup_bloom_filters[i] = BloomFilter(max_elements=pos_cnt_list[i], error_rate=self.f[i])
-                self.fpr += self.f[i] * neg_pr_list[i - 1]
+                # self.fpr += self.f[i] * neg_pr_list[i - 1]
             elif self.f[i] == 0:
                 assert (pos_cnt_list[i] == 0)
                 self.backup_bloom_filters[i] = BloomFilter(max_elements=1, error_rate=1 - EPS)
-                self.fpr += (1 - EPS) * neg_pr_list[i - 1]
+                # self.fpr += (1 - EPS) * neg_pr_list[i - 1]
 
         for key, score in zip(pos_keys, pos_scores):
             region_idx = self.get_region_idx(score)
             if self.backup_bloom_filters[region_idx] is not None:
                 self.backup_bloom_filters[region_idx].add(key)
-        return self.fpr
+        # return self.fpr
 
     def get_region_idx(self, score):
         region_idx = bisect.bisect_left(self.t, score)

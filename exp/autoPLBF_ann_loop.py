@@ -100,6 +100,7 @@ for hidden_dim in range(20, 201, 10):  # Outer loop for number of neurons in hid
         neg_scores = model(negative_tensor).squeeze().numpy().tolist()
 
     plbf = FastPLBF_M(positive_urls_list, pos_scores, neg_scores, bf_bytes * 8.0, 50, 5)
+    plbf.insert_keys(positive_urls_list, pos_scores)
 
     fp_cnt = 0
     query_negative = X_query

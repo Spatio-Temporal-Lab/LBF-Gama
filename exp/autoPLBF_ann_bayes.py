@@ -58,14 +58,12 @@ class ANNModel(nn.Module):
         return x
 
 
-# Training and evaluation
-start_time = time.perf_counter_ns()
-
 best_ann = None
 size = 200 * 1024
 best_fpr = 1.0
 best_threshold = 0.5
 best_plbf = None
+best_scores = None
 epoch_max = 50  # Training each ANN for 50 epochs
 
 n_false = df_train[df_train['url_type'] == 0].shape[0] + df_test[df_test['url_type'] == 0].shape[0]
@@ -75,7 +73,7 @@ input_dim = X_train.shape[1]
 
 
 def train(hidden_dim):
-    global best_plbf, best_ann
+    global best_plbf, best_ann, best_scores
     hidden_dim = int(hidden_dim)
     model = ANNModel(input_dim, hidden_dim)
     criterion = nn.BCELoss()
@@ -106,12 +104,12 @@ def train(hidden_dim):
     if fpr < best_fpr:
         best_ann = copy.deepcopy(model)
         best_plbf = plbf
+        best_scores = pos_scores
 
     return 1 - fpr
 
 
-end_time = time.perf_counter_ns()
-print(f'use {(end_time - start_time) / 1000000}ms')
+start_time = time.perf_counter_ns()
 
 optimizer = BayesianOptimization(
     f=train,
@@ -122,6 +120,9 @@ optimizer.maximize(init_points=2, n_iter=8)
 best_params = optimizer.max['params']
 best_hidden_dim = int(best_params['hidden_dim'])
 
+end_time = time.perf_counter_ns()
+print(f'use {(end_time - start_time) / 1000000}ms')
+
 fp_cnt = 0
 query_negative = X_query
 query_neg_keys = query_urls
@@ -129,6 +130,7 @@ best_ann.eval()
 with torch.no_grad():
     query_neg_scores = best_ann(X_query_tensor).squeeze().numpy()
 total = len(query_negative)
+best_plbf.insert_keys(pos_keys=positive_urls_list, pos_scores=best_scores)
 for key, score in zip(query_neg_keys, query_neg_scores):
     if best_plbf.contains(key, score):
         fp_cnt += 1

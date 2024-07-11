@@ -1,3 +1,4 @@
+import copy
 import time
 
 import lightgbm as lgb
@@ -58,6 +59,7 @@ epoch_now = 0
 epoch_max = 20
 best_epoch = 0
 best_plbf = None
+best_scores = None
 
 start_time = time.perf_counter_ns()
 for i in range(int(epoch_max / epoch_each)):
@@ -79,6 +81,7 @@ for i in range(int(epoch_max / epoch_each)):
         best_fpr = fpr
         best_epoch = epoch_now
         best_plbf = plbf
+        best_scores = copy.deepcopy(pos_scores)
 
 end_time = time.perf_counter_ns()
 print(f'use {(end_time - start_time) / 1000000}ms')
@@ -93,6 +96,7 @@ query_neg_keys = query_urls
 query_neg_scores = best_bst.predict(X_query)
 total = len(query_negative)
 
+best_plbf.insert_keys(positive_urls_list, best_scores)
 for key, score in zip(query_neg_keys, query_neg_scores):
     if best_plbf.contains(key, score):
         fp_cnt += 1

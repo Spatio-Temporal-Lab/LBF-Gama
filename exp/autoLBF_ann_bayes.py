@@ -1,3 +1,4 @@
+import copy
 import time
 
 import numpy as np
@@ -164,11 +165,12 @@ def ann_query_url(model, bloom_filter, X_query, y_query, query_urls, threshold, 
 size = 200 * 1024
 best_fpr = 1.0
 best_threshold = 0.5
+best_ann = None
 epoch_max = 50  # Training each ANN for 50 epochs
 
 
 def train(hidden_dim):
-    global best_threshold, best_fpr
+    global best_threshold, best_fpr, best_ann
     hidden_dim = int(hidden_dim)
     model = ANNModel(input_dim, hidden_dim)
     criterion = nn.BCELoss()
@@ -202,6 +204,7 @@ def train(hidden_dim):
     thresh, fpr_lbf = evaluate_thresholds(all_predictions, all_true_labels, bf_bytes)
     if fpr_lbf < best_fpr:
         best_threshold = thresh
+        best_ann = copy.deepcopy(model)
 
     return 1.0 - fpr_lbf
 
@@ -216,18 +219,6 @@ optimizer = BayesianOptimization(
 optimizer.maximize(init_points=2, n_iter=8)
 best_params = optimizer.max['params']
 best_hidden_dim = int(best_params['hidden_dim'])
-best_ann = ANNModel(input_dim, best_hidden_dim)
-criterion = nn.BCELoss()
-optimizer = optim.Adam(best_ann.parameters(), lr=0.001)
-
-for epoch_now in range(epoch_max):
-    best_ann.train()
-    optimizer.zero_grad()
-    outputs = best_ann(X_train_tensor)
-    loss = criterion(outputs, y_train_tensor)
-    loss.backward()
-    optimizer.step()
-
 end_time = time.perf_counter_ns()
 print(f'use {(end_time - start_time) / 1000000}ms')
 

@@ -42,6 +42,9 @@ class prList:
     
         assert(abs(self.accPr[self.N] - 1.0) < EPS), self.accPr[self.N]
 
+    def get_pr(self):
+        return self.pr
+
     def get_th_idx(self, score: float) -> int:
         """
         0 --> 0

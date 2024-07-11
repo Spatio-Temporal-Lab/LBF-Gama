@@ -81,6 +81,7 @@ for i in range(int(epoch_max / epoch_each)):
     print("模型在内存中所占用的大小（字节）:", model_size)
 
     plbf = FastPLBF_M(positive_urls_list, pos_scores, neg_scores, bf_bytes * 8.0, 50, 5)
+    plbf.insert_keys(positive_urls_list, pos_scores)
     fpr = plbf.get_fpr()
 
     fp_cnt = 0

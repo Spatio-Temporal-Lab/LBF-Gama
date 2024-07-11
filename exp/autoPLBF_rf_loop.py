@@ -69,6 +69,7 @@ for epoch_now in range(epoch_max):
     neg_scores = rf.predict_proba(negative_samples)[:, 1].tolist()
 
     plbf = FastPLBF_M(positive_urls_list, pos_scores, neg_scores, bf_size * 8.0, 50, 5)
+    plbf.insert_keys(positive_urls_list, pos_scores)
     fpr = plbf.get_fpr()
 
     fp_cnt = 0

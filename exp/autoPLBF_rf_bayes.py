@@ -4,7 +4,6 @@ import time
 import numpy as np
 import pandas as pd
 from bayes_opt import BayesianOptimization
-from openpyxl import Workbook
 from sklearn.ensemble import RandomForestClassifier
 
 import lib.lgb_url
@@ -47,11 +46,12 @@ n_test = len(df_test)
 
 best_fpr = 1.0
 best_plbf = None
+best_scores = None
 size = 200 * 1024
 
 
 def train(n_estimators):
-    global best_plbf, best_fpr
+    global best_plbf, best_fpr, best_scores
     rf = RandomForestClassifier(n_estimators=int(n_estimators), max_leaf_nodes=20, random_state=42, warm_start=True)
     rf.fit(X_train, y_train)
     model_size = lib.lgb_url.lgb_get_model_size(rf)
@@ -69,6 +69,7 @@ def train(n_estimators):
     if best_plbf is None or fpr < best_fpr:
         best_plbf = plbf
         best_fpr = fpr
+        best_scores = copy.deepcopy(pos_scores)
 
     return 1.0 - fpr
 
@@ -93,6 +94,7 @@ query_neg_keys = query_urls
 query_neg_scores = best_rf.predict_proba(X_query)[:, 1]
 total = len(query_negative)
 
+best_plbf.insert_keys(positive_urls_list, best_scores)
 for key, score in zip(query_neg_keys, query_neg_scores):
     if best_plbf.contains(key, score):
         fp_cnt += 1
