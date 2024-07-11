@@ -187,6 +187,7 @@ def evaluate_thresholds(prediction_results, y_true, bf_bytes):
 #     return best_thresh, best_fpr_lbf
 
 
+
 start_time = time.perf_counter_ns()
 initial_size = 64 * 1024
 max_size = 320 * 1024
@@ -201,8 +202,9 @@ while size <= max_size:
     best_threshold = 0.5
     epoch_each = 1
     epoch_now = 0
-    epoch_max = 20
+    epoch_max = 100
     best_epoch = 0
+
     for i in range(int(epoch_max / epoch_each)):
         bst = lgb.train(params, train_data, epoch_each, valid_sets=[test_data], init_model=bst,
                         keep_training_booster=True)
@@ -218,6 +220,7 @@ while size <= max_size:
         # 拼接预测结果
         all_predictions = np.concatenate([train_pred, test_pred])
         all_true_labels = np.concatenate([y_train, y_test])
+
         best_thresh, best_fpr_lbf = evaluate_thresholds(all_predictions, all_true_labels, bf_bytes)
 
         # best_thresh, best_fpr_lbf = evaluate_thresholds(prediction_results, y_test, bf_bytes)
