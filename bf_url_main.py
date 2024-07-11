@@ -41,15 +41,8 @@ id_test = df_test[df_test['url_type'] == 1].index.tolist()
 # 组合训练集和测试集的url_type为1的url数据
 combined_data = np.concatenate((df_train.loc[id_train, 'url'].values, df_test.loc[id_test, 'url'].values), axis=0)
 
-# 定义布隆过滤器初始大小
-initial_size = 32
-max_size = 512
-
-# 循环，从32开始，每次乘以2，直到256
-size = initial_size
-while size <= max_size:
-    bloom_size = size * 1024
-    bloom_filter = lib.bf_util.create_bloom_filter(dataset=combined_data, bf_size=bloom_size)
+for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
+    bloom_filter = lib.bf_util.create_bloom_filter(dataset=combined_data, bf_size=size)
 
     # 统计假阳性率
     fp = 0
@@ -71,4 +64,3 @@ while size <= max_size:
                 print(f'error for url {url}')
 
     print(f'fpr: {fp / total_neg}')
-    size *= 2

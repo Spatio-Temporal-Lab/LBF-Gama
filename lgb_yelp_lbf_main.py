@@ -2,29 +2,56 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import log_loss
-
+import lib.data_processing
+import lib.network
 import lib.lgb_url
 import lib.bf_util
 
-df_train = pd.read_csv('dataset/url_train.csv')
-df_test = pd.read_csv('dataset/url_test.csv')
-df_query = pd.read_csv('dataset/url_query.csv')
+data_train = pd.read_csv('dataset/yelp/yelp_train.csv')
+data_test = pd.read_csv('dataset/yelp/yelp_test.csv')
+data_query = pd.read_csv('dataset/yelp/yelp_query.csv')
 
-train_urls = df_train['url']
-test_urls = df_test['url']
-query_urls = df_query['url']
+word_dict, region_dict = lib.data_processing.loading_embedding("yelp")
 
-X_train = df_train.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_train = df_train['url_type'].values.astype(np.float32)
-X_test = df_test.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_test = df_test['url_type'].values.astype(np.float32)
-X_query = df_query.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_query = df_query['url_type'].values.astype(np.float32)
 
+def yelp_embedding(data_train, word_dict=word_dict, region_dict=region_dict):
+    data_train['keywords'] = data_train['keywords'].str.split(' ')
+    data_train = data_train.explode('keywords')
+    data_train = data_train.reset_index(drop=True)
+    data_train['keywords'] = data_train['keywords'].astype(str)
+    data_train['keywords'] = data_train['keywords'].apply(str.lower)
+
+    insert = pd.DataFrame()
+    insert = data_train.apply(lib.network.insert, axis=1)
+
+    # region embedding
+    data_train['region'] = data_train.apply(lib.network.region_mapping, axis=1, args=(region_dict,))
+    data_train.drop(columns=['lat', 'lon'], inplace=True)
+
+    # time embedding
+    data_train['timestamp'] = data_train['timestamp'].apply(lib.network.time_embedding)
+
+    # keywords embedding
+    data_train['keywords'] = data_train['keywords'].apply(lib.network.keywords_embedding, args=(word_dict,))
+
+    # 生成一个用于神经网络输入的dataframe:embedding
+    embedding = pd.DataFrame()
+    embedding['embedding'] = data_train.apply(lib.network.to_embedding, axis=1)
+    # print(embedding)
+    y = data_train['is_in']
+    del data_train
+    X = pd.DataFrame(embedding['embedding'].apply(pd.Series))
+    # print(X)
+    return X, y, insert
+
+
+X_train, y_train, train_insert = yelp_embedding(data_train, word_dict=word_dict, region_dict=region_dict)
+X_test, y_test, test_insert = yelp_embedding(data_test, word_dict=word_dict, region_dict=region_dict)
+X_query, y_query, query_insert = yelp_embedding(data_query, word_dict=word_dict, region_dict=region_dict)
 train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
 test_data = lgb.Dataset(X_test, label=y_test, free_raw_data=False)
-n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
-n_test = len(df_test)
+n_true = data_train[data_train['is_in'] == 1].shape[0] + data_test[data_test['is_in'] == 1].shape[0]
+n_test = len(data_test)
 
 best_params = None
 best_score = float('inf')
@@ -115,7 +142,7 @@ while size <= max_size:
             best_score = score
             best_threshold = threshold
 
-    data_negative = lib.lgb_url.lgb_validate_url(bst, X_train, y_train, train_urls, X_test, y_test, test_urls,
+    data_negative = lib.lgb_url.lgb_validate_url(bst, X_train, y_train, train_insert, X_test, y_test, test_insert,
                                                  best_threshold)
     bloom_filter = lib.lgb_url.create_bloom_filter(dataset=data_negative, bf_size=bloom_size)
 
@@ -127,5 +154,5 @@ while size <= max_size:
     print("memory of bloom filter: ", memory_in_bytes)
     print("memory of learned model: ", model_size)
 
-    fpr = lib.lgb_url.lgb_query_url(bst, bloom_filter, X_query, y_query, query_urls, best_threshold, False)
+    fpr = lib.lgb_url.lgb_query_url(bst, bloom_filter, X_query, y_query, query_insert, best_threshold, False)
     size *= 2
