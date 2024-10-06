@@ -1,23 +1,16 @@
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import sys
-import os
 
-lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../lib'))
-sys.path.insert(0, lib_path)
-
-# 从 lib 包中导入 lgb_url 模块
-
-from lib import lgb_url
-import learn_bf
+import lib.lgb_url
+from plbf import FastPLBF_M
 
 df_train = pd.read_csv('../Train_COD.csv')
 df_test = pd.read_csv('../Test_COD.csv')
 df_query = pd.read_csv('../Query_COD.csv')
 
-train_urls = df_train['objID']
-test_urls = df_test['objID']
+train_urls=df_train['objID']
+test_urls=df_test['objID']
 query_urls = df_query['objID']
 
 X_train = df_train.drop(columns=['type']).values.astype(np.float32)
@@ -29,13 +22,17 @@ y_query = df_query['type'].values.astype(np.float32)
 
 train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
 test_data = lgb.Dataset(X_test, label=y_test, free_raw_data=False)
+query_data = lgb.Dataset(X_query, label=y_query, free_raw_data=False)
+
 n_true = df_train[df_train['type'] == 1].shape[0] + df_test[df_test['type'] == 1].shape[0]
+n_false = df_train[df_train['type'] == 0].shape[0] + df_test[df_test['type'] == 0].shape[0]
 n_test = len(df_test)
 
 bst = lgb.Booster(model_file='../best_bst_204800')
 
 y_pred_train = bst.predict(X_train)
 y_pred_test = bst.predict(X_test)
+y_pred_query = bst.predict(X_query)
 
 train_results = pd.DataFrame({
     'url': train_urls,
@@ -50,19 +47,24 @@ test_results = pd.DataFrame({
 })
 all_results = pd.concat([train_results, test_results])
 all_results.to_csv('url_results.csv', index=False)
-
+query_results = pd.DataFrame({
+    'url': query_urls,
+    'label': y_query,
+    'score': y_pred_query
+})
+query_results.to_csv('query_results.csv', index=False)
 # 初始化变量
-model_size = lgb_url.lgb_get_model_size(bst)
+model_size = lib.lgb_url.lgb_get_model_size(bst)
 print("模型在内存中所占用的大小（字节）:", model_size)
 
-for size in range(int(1* 1024 * 1024), int(2.5*1024 * 1024 + 1), int(0.5*1024 * 1024)):
+for size in range(int(0.5* 1024 * 1024), int(2.5*1024 * 1024 + 1), int(0.5*1024 * 1024)):
     bloom_size = size - model_size
-    learn_bf.run(
-        R_sum=bloom_size*8,
+    print(bloom_size)
+    bloom_size = bloom_size * 8.0
+    FastPLBF_M.run(
         path='url_results.csv',
-        model=bst,
-        X_query=X_query,
-        y_query=y_query,
-        query_urls=query_urls
+        query_path='query_results.csv',
+        M=bloom_size,
+        N=50,
+        k=5,
     )
-

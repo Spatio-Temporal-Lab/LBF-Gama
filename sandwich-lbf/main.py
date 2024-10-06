@@ -6,27 +6,28 @@ import lib.lgb_url
 import slbf
 
 
-df_train = pd.read_csv('../dataset/url_train.csv')
-df_test = pd.read_csv('../dataset/url_test.csv')
-df_query = pd.read_csv('../dataset/url_query.csv')
+df_train = pd.read_csv('../Train_COD.csv')
+df_test = pd.read_csv('../Test_COD.csv')
+df_query = pd.read_csv('../Query_COD.csv')
 
-train_urls = df_train['url']
-test_urls = df_test['url']
-query_urls = df_query['url']
+train_urls=df_train['objID']
+test_urls=df_test['objID']
+query_urls = df_query['objID']
 
-X_train = df_train.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_train = df_train['url_type'].values.astype(np.float32)
-X_test = df_test.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_test = df_test['url_type'].values.astype(np.float32)
-X_query = df_query.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_query = df_query['url_type'].values.astype(np.float32)
+X_train = df_train.drop(columns=['type']).values.astype(np.float32)
+y_train = df_train['type'].values.astype(np.float32)
+X_test = df_test.drop(columns=['type']).values.astype(np.float32)
+y_test = df_test['type'].values.astype(np.float32)
+X_query = df_query.drop(columns=['type']).values.astype(np.float32)
+y_query = df_query['type'].values.astype(np.float32)
 
 train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
 test_data = lgb.Dataset(X_test, label=y_test, free_raw_data=False)
-n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
+n_true = df_train[df_train['type'] == 1].shape[0] + df_test[df_test['type'] == 1].shape[0]
+n_false = df_train[df_train['type'] == 0].shape[0] + df_test[df_test['type'] == 0].shape[0]
 n_test = len(df_test)
 
-bst = lgb.Booster(model_file='../best_bst_20480')
+bst = lgb.Booster(model_file='../best_bst_204800')
 
 y_pred_train = bst.predict(X_train)
 y_pred_test = bst.predict(X_test)
@@ -49,8 +50,9 @@ all_results.to_csv('url_results.csv', index=False)
 model_size = lib.lgb_url.lgb_get_model_size(bst)
 print("模型在内存中所占用的大小（字节）:", model_size)
 
-for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
+for size in range(int(0.5* 1024 * 1024), int(2.5*1024 * 1024 + 1), int(0.5*1024 * 1024)):
     bloom_size = size - model_size
+    print(bloom_size)
     slbf.run(
         R_sum=bloom_size * 8,
         path='url_results.csv',
@@ -59,4 +61,3 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
         y_query=y_query,
         query_urls=query_urls
     )
-    size *= 2

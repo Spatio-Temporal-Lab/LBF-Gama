@@ -14,6 +14,7 @@ class hashfunc(object):
         self.ss = random.randint(1, 99999999)
 
     def __call__(self, x):
+        x=str(x)
         return murmurhash3_32(x, seed=self.ss) % self.m
 
 
