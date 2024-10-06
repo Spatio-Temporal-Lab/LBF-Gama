@@ -3,24 +3,52 @@ import time
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 import lib.bf_util
 import lib.lgb_url
 
-df_train = pd.read_csv('dataset/url_train.csv')
-df_test = pd.read_csv('dataset/url_test.csv')
-df_query = pd.read_csv('dataset/url_query.csv')
 
-train_urls = df_train['url']
-test_urls = df_test['url']
-query_urls = df_query['url']
+df_train = pd.read_csv('Train_COD.csv')
+df_test = pd.read_csv('Test_COD.csv')
+df_query = pd.read_csv('Query_COD.csv')
 
-X_train = df_train.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_train = df_train['url_type'].values.astype(np.float32)
-X_test = df_test.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_test = df_test['url_type'].values.astype(np.float32)
-X_query = df_query.drop(columns=['url', 'url_type']).values.astype(np.float32)
-y_query = df_query['url_type'].values.astype(np.float32)
+print("finish reading")
+positive_train_urls = df_train[df_train['type'] == 1]['objID']
+positive_test_urls = df_test[df_test['type'] == 1]['objID']
+
+# 合并正类样本的URLs
+positive_urls = pd.concat([positive_train_urls, positive_test_urls])
+
+# 转换成list
+positive_urls_list = positive_urls.tolist()
+
+query_urls = df_query['objID']
+
+
+# scaler = StandardScaler()
+# columns_to_standardize = df_train.drop(columns=['run','camcol','field','type']).columns
+# df_train=pd.get_dummies(df_train,columns=['run','camcol','field'])
+# df_train[columns_to_standardize] = scaler.fit_transform(df_train[columns_to_standardize])
+#
+# df_test=pd.get_dummies(df_test,columns=['run','camcol','field'])
+# df_test[columns_to_standardize] = scaler.fit_transform(df_test[columns_to_standardize])
+#
+# df_query=pd.get_dummies(df_query,columns=['run','camcol','field'])
+# df_query[columns_to_standardize] = scaler.fit_transform(df_query[columns_to_standardize])
+
+X_train = df_train.drop(columns=['type']).values.astype(np.float32)
+y_train = df_train['type'].values.astype(np.float32)
+X_test = df_test.drop(columns=['type']).values.astype(np.float32)
+y_test = df_test['type'].values.astype(np.float32)
+X_query = df_query.drop(columns=['type']).values.astype(np.float32)
+y_query = df_query['type'].values.astype(np.float32)
+
+
+train_urls=df_train['objID']
+test_urls=df_test['objID']
+query_urls = df_query['objID']
+
 
 train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
 test_data = lgb.Dataset(X_test, label=y_test, free_raw_data=False)
@@ -33,10 +61,12 @@ params = {
     'learning_rate': 0.05,
     'feature_fraction': 0.9,
 }
-all_memory = 32 * 1024  # tweet模型大小：5 * 1024 * 1024
+positive_samples = np.concatenate((X_train[y_train == 1], X_test[y_test == 1]), axis=0)
+negative_samples = np.concatenate((X_train[y_train == 0], X_test[y_test == 0]), axis=0)
 
-n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
-n_false = df_train[df_train['url_type'] == 0].shape[0] + df_test[df_test['url_type'] == 0].shape[0]
+
+n_true = df_train[df_train['type'] == 1].shape[0] + df_test[df_test['type'] == 1].shape[0]
+n_false = df_train[df_train['type'] == 0].shape[0] + df_test[df_test['type'] == 0].shape[0]
 n_test = len(df_test)
 
 
@@ -154,6 +184,7 @@ def evaluate_thresholds(prediction_results, y_true, bf_bytes):
 
 start_time = time.perf_counter_ns()
 
+size = 0.5*1024 * 1024
 bst = None
 best_bst = None
 best_fpr = 1.0
@@ -164,7 +195,7 @@ epoch_max = 20
 best_epoch = 0
 for i in range(int(epoch_max / epoch_each)):
     bst = lgb.train(params, train_data, epoch_each, valid_sets=[test_data], init_model=bst, keep_training_booster=True)
-    bf_bytes = all_memory - lib.lgb_url.lgb_get_model_size(bst)
+    bf_bytes = size - lib.lgb_url.lgb_get_model_size(bst)
     if bf_bytes <= 0:
         break
     # prediction_results = bst.predict(X_test)
@@ -200,7 +231,7 @@ print(f"best epoch:", best_epoch)
 data_negative = lib.lgb_url.lgb_validate_url(best_bst, X_train, y_train, train_urls, X_test, y_test, test_urls,
                                              best_threshold)
 print(f"{len(data_negative)} insert into bloom filter")
-bloom_size = all_memory - model_size
+bloom_size = size - model_size
 
 bloom_filter = lib.lgb_url.create_bloom_filter(dataset=data_negative, bf_size=bloom_size)
 

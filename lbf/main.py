@@ -1,8 +1,6 @@
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-
-import disjoint_ada_bf
 import sys
 import os
 
@@ -12,8 +10,7 @@ sys.path.insert(0, lib_path)
 # 从 lib 包中导入 lgb_url 模块
 
 from lib import lgb_url
-import ada_bf
-
+import learn_bf
 
 df_train = pd.read_csv('../Train_COD.csv')
 df_test = pd.read_csv('../Test_COD.csv')
@@ -58,31 +55,14 @@ all_results.to_csv('url_results.csv', index=False)
 model_size = lgb_url.lgb_get_model_size(bst)
 print("模型在内存中所占用的大小（字节）:", model_size)
 
-for size in range(int(0.5* 1024 * 1024), int(2.5*1024 * 1024 + 1), int(0.5*1024 * 1024)):
-    print(size)
-    print(model_size)
+for size in range(int(1* 1024 * 1024), int(2.5*1024 * 1024 + 1), int(0.5*1024 * 1024)):
     bloom_size = size - model_size
-    ada_bf.run(
-        num_group_min=8,
-        num_group_max=12,
+    learn_bf.run(
         R_sum=bloom_size*8,
-        c_min=1.6,
-        c_max=2.5,
         path='url_results.csv',
         model=bst,
         X_query=X_query,
         y_query=y_query,
         query_urls=query_urls
     )
-    # disjoint_ada_bf.run(
-    #     num_group_min=8,
-    #     num_group_max=12,
-    #     R_sum=bloom_size*8,
-    #     c_min=1.6,
-    #     c_max=2.5,
-    #     path='url_results.csv',
-    #     model=bst,
-    #     X_query=X_query,
-    #     y_query=y_query,
-    #     query_urls=query_urls
-    # )
+

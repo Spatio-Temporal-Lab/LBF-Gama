@@ -28,28 +28,21 @@ df_test.to_csv('dataset/url_test.csv', index=False)
 df_query.to_csv('dataset/url_query.csv', index=False)
 """
 
-df_train = pd.read_csv('dataset/url_train.csv')
-df_test = pd.read_csv('dataset/url_test.csv')
-df_query = pd.read_csv('dataset/url_query.csv')
+df_train = pd.read_csv('Train_COD.csv')
+df_test = pd.read_csv('Test_COD.csv')
+df_query = pd.read_csv('Query_COD.csv')
 
 # 获取训练集中url_type为1的行的索引
-id_train = df_train[df_train['url_type'] == 1].index.tolist()
+id_train = df_train[df_train['type'] == 1].index.tolist()
 
 # 获取测试集中url_type为1的行的索引
-id_test = df_test[df_test['url_type'] == 1].index.tolist()
+id_test = df_test[df_test['type'] == 1].index.tolist()
 
 # 组合训练集和测试集的url_type为1的url数据
-combined_data = np.concatenate((df_train.loc[id_train, 'url'].values, df_test.loc[id_test, 'url'].values), axis=0)
+combined_data = np.concatenate((df_train.loc[id_train, 'objID'].values, df_test.loc[id_test, 'objID'].values), axis=0)
 
-# 定义布隆过滤器初始大小
-initial_size = 32
-max_size = 512
-
-# 循环，从32开始，每次乘以2，直到256
-size = initial_size
-while size <= max_size:
-    bloom_size = size * 1024
-    bloom_filter = lib.bf_util.create_bloom_filter(dataset=combined_data, bf_size=bloom_size)
+for size in range(int(0.5* 1024 * 1024), int(2.5*1024 * 1024 + 1), int(0.5*1024 * 1024)):
+    bloom_filter = lib.bf_util.create_bloom_filter(dataset=combined_data, bf_size=size)
 
     # 统计假阳性率
     fp = 0
@@ -57,8 +50,8 @@ while size <= max_size:
     total_neg = 0
     # 遍历df_query中的每一个url列来查询布隆过滤器
     for index, row in df_query.iterrows():
-        url = row['url']
-        true_label = row['url_type']  # 0为负例，1为正例
+        url = row['objID']
+        true_label = row['type']  # 0为负例，1为正例
 
         if true_label == 0:
             total_neg += 1
@@ -71,4 +64,3 @@ while size <= max_size:
                 print(f'error for url {url}')
 
     print(f'fpr: {fp / total_neg}')
-    size *= 2

@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 
 from .PLBF_M import PLBF_M
@@ -5,11 +7,12 @@ from .utils.ExpectedFPR import ExpectedFPR
 from .utils.OptimalFPR_M import OptimalFPR_M
 from .utils.SpaceUsed import SpaceUsed
 from .utils.ThresMaxDivDP import MaxDivDP, ThresMaxDiv
-from .utils.const import INF
+from .utils.const import INF, EPS
 
 
-class FastPLBF_M(PLBF_M):
-    def __init__(self, pos_keys: list, pos_scores: list[float], neg_scores: list[float], M: float, N: int, k: int):
+class FastPLBF_M_Prune(PLBF_M):
+    def __init__(self, pos_keys: list, pos_scores: list[float], neg_scores: list[float], M: float, N: int, k: int,
+                 prev_min_fpr):
         """
         Args:
             pos_keys (list): keys
@@ -42,6 +45,24 @@ class FastPLBF_M(PLBF_M):
         self.fpr = 0.0
 
         segment_thre_list, g, h = self.divide_into_segments(pos_scores, neg_scores)
+
+        expected_bits = 0
+        pr_pos = g.get_pr()
+        pr_neg = h.get_pr()
+        for i in range(1, N + 1):
+            prob_pos = max(pr_pos[i], EPS)
+            prob_neg = max(pr_neg[i], EPS)
+            # print(f'prob_pos = {prob_pos}, prob_neg = {prob_neg}')
+            expected_fpr = min(1 - EPS, prev_min_fpr * prob_pos / prob_neg)
+            # print(f'expected_fpr = {expected_fpr}')
+            expected_bits += -(self.n * prob_pos) * math.log(expected_fpr) / (math.log(2) * math.log(2))
+            # print(f'expected_bits = {expected_bits}')
+        print(f'M = {M}, expected bits = {expected_bits}')
+        if expected_bits > M:
+            self.fpr = 1.0
+            print("pruned")
+            return
+        # print('ok')
         self.find_best_t_and_f(segment_thre_list, g, h)
         # self.insert_keys(pos_keys, pos_scores, h)
 
@@ -76,35 +97,34 @@ class FastPLBF_M(PLBF_M):
     def get_fpr(self):
         return self.fpr
 
-
-def run(path, query_path, M, N, k):
-    data = pd.read_csv(path)
-    query_data = pd.read_csv(query_path)
-    negative_sample = data.loc[(data['label'] == 0)]
-    positive_sample = data.loc[(data['label'] == 1)]
-    # train_negative = negative_sample.sample(frac=0.8)
-    train_negative = negative_sample
-    query_negative = query_data.loc[(query_data['label'] == 0)]
-
-    pos_keys = list(positive_sample['url'])
-    pos_scores = list(positive_sample['score'])
-    train_neg_scores = list(train_negative['score'])
-
-    query_neg_keys = list(query_negative['url'])
-    query_neg_scores = list(query_negative['score'])
-
-    plbf = FastPLBF_M(pos_keys, pos_scores, train_neg_scores, M, N, k)
-    plbf.insert_keys(pos_keys, pos_scores)
-
-    # test
-    fp_cnt = 0
-    total = len(query_neg_keys)
-    for key, score in zip(query_neg_keys, query_neg_scores):
-        if plbf.contains(key, score):
-            fp_cnt += 1
-    print(f"fpr: {float(fp_cnt) / total}")
-    print(f"Theoretical false positive rate: {plbf.get_fpr()}")
-    return float(fp_cnt) / total
+# def run(path, query_path, M, N, k):
+#     data = pd.read_csv(path)
+#     query_data = pd.read_csv(query_path)
+#     negative_sample = data.loc[(data['label'] == 0)]
+#     positive_sample = data.loc[(data['label'] == 1)]
+#     # train_negative = negative_sample.sample(frac=0.8)
+#     train_negative = negative_sample
+#     query_negative = query_data.loc[(query_data['label'] == 0)]
+#
+#     pos_keys = list(positive_sample['url'])
+#     pos_scores = list(positive_sample['score'])
+#     train_neg_scores = list(train_negative['score'])
+#
+#     query_neg_keys = list(query_negative['url'])
+#     query_neg_scores = list(query_negative['score'])
+#
+#     plbf = FastPLBF_M(pos_keys, pos_scores, train_neg_scores, M, N, k)
+#     plbf.insert_keys(pos_keys, pos_scores)
+#
+#     # test
+#     fp_cnt = 0
+#     total = len(query_neg_keys)
+#     for key, score in zip(query_neg_keys, query_neg_scores):
+#         if plbf.contains(key, score):
+#             fp_cnt += 1
+#     print(f"fpr: {float(fp_cnt) / total}")
+#     print(f"Theoretical false positive rate: {plbf.get_fpr()}")
+#     return float(fp_cnt) / total
 
 # if __name__ == "__main__":
 #     parser = argparse.ArgumentParser()

@@ -8,25 +8,26 @@ import lib.bf_util
 
 
 def get_model(max_model_memory):
-    df_train = pd.read_csv('dataset/url_train.csv')
-    df_test = pd.read_csv('dataset/url_test.csv')
+    df_train = pd.read_csv('Train_COD.csv')
+    df_test = pd.read_csv('Test_COD.csv')
 
-    X_train = df_train.drop(columns=['url', 'url_type']).values.astype(np.float32)
-    y_train = df_train['url_type'].values.astype(np.float32)
-    X_test = df_test.drop(columns=['url', 'url_type']).values.astype(np.float32)
-    y_test = df_test['url_type'].values.astype(np.float32)
+    X_train = df_train.drop(columns=['type']).values.astype(np.float32)
+    y_train = df_train['type'].values.astype(np.float32)
+    X_test = df_test.drop(columns=['type']).values.astype(np.float32)
+    y_test = df_test['type'].values.astype(np.float32)
 
     train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
     test_data = lgb.Dataset(X_test, label=y_test, free_raw_data=False)
-    n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_type'] == 1].shape[0]
+    n_true = df_train[df_train['type'] == 1].shape[0] + df_test[df_test['type'] == 1].shape[0]
+
 
     best_params = None
     best_score = float('inf')
 
     # 定义参数空间
-    num_leaves_list = range(2, 32)  # 叶子数量从2到31
-    num_rounds_list = range(1, 21)  # 训练轮次从1到20
-
+    num_leaves_list = range(16, 31)  # 叶子数量从2到31
+    num_rounds_list = range(16, 31)  # 训练轮次从1到20
+    # best_params = {'num_leaves': 65, 'num_rounds': 65}
     # 循环遍历参数空间
     for num_leaves in num_leaves_list:
         for num_rounds in num_rounds_list:
@@ -75,4 +76,4 @@ def get_model(max_model_memory):
     return bst
 
 
-get_model(20 * 1024)
+get_model(200 * 1024)

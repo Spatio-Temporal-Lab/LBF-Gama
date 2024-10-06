@@ -9,8 +9,8 @@ def hashfunc(m):
     ss = randint(1, 99999999)
 
     def hash_m(x):
-        x_str = str(x)
-        return murmurhash3_32(x_str, seed=ss) % m
+        x=str(x)
+        return murmurhash3_32(x, seed=ss) % m
 
     return hash_m
 
