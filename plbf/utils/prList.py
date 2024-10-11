@@ -1,5 +1,5 @@
 import math
-from utils.const import EPS
+from .const import EPS
 import bisect
 
 class prList:
@@ -41,6 +41,9 @@ class prList:
             self.accPr[i] = self.accPr[i - 1] + self.pr[i]
     
         assert(abs(self.accPr[self.N] - 1.0) < EPS), self.accPr[self.N]
+
+    def get_pr(self):
+        return self.pr
 
     def get_th_idx(self, score: float) -> int:
         """

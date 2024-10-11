@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 
 import lib.lgb_url
-import ada_bf
-import disjoint_ada_bf
+import slbf
+
 
 df_train = pd.read_csv('../dataset/url_train.csv')
 df_test = pd.read_csv('../dataset/url_test.csv')
@@ -51,28 +51,12 @@ print("模型在内存中所占用的大小（字节）:", model_size)
 
 for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
     bloom_size = size - model_size
-    ada_bf.run(
-        num_group_min=8,
-        num_group_max=12,
-        R_sum=bloom_size*8,
-        c_min=1.6,
-        c_max=2.5,
+    slbf.run(
+        R_sum=bloom_size * 8,
         path='url_results.csv',
         model=bst,
         X_query=X_query,
         y_query=y_query,
         query_urls=query_urls
     )
-    # disjoint_ada_bf.run(
-    #     num_group_min=8,
-    #     num_group_max=12,
-    #     R_sum=bloom_size*8,
-    #     c_min=1.6,
-    #     c_max=2.5,
-    #     path='url_results.csv',
-    #     model=bst,
-    #     X_query=X_query,
-    #     y_query=y_query,
-    #     query_urls=query_urls
-    # )
     size *= 2
