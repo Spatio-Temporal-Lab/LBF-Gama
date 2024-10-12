@@ -23,7 +23,7 @@ budget
 
 ### Datasets
 
-Yelp dataset can be found in following link，tweet dataset is not publicly available for the time being.
+The datasets used in paper can be downloaded from the following links:
 
 - URL：https://www.kaggle.com/datasets/sid321axn/malicious-urls-dataset
 - Yelp: https://www.yelp.com/dataset/download
