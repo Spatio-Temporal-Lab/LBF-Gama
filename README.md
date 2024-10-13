@@ -12,8 +12,8 @@ budget
 
 | Method Name       | Python Script Path  |
 | ----------------- | ------------------------ |
-| Gama-SLBF         |  lgb_url_autoLBF_main.py     |
-| Gama-PLBF         |  lgb_url_autoPLBF_main.py    |
+| Gama-SLBF         |  lgb_url_GamaLBF_main.py     |
+| Gama-PLBF         |  lgb_url_GamaPLBF_main.py    |
 | PLBF              |  PLBF/main.py                |
 | Ada-BF            |  ada-bf/main.py              |
 | Sandwich-BF       |  sandwich-lbf/main.py        |
