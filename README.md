@@ -5,6 +5,7 @@ to minimize the overall FPR of an LBF under a given memory
 budget
 
 ### Prerequisites for testing
+- Default Python version used in experiments: 3.10.12
 - Run model_generate.py to generate a fixed-size LightGBM model for method comparison
 
 ### Run
