@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 
 import lib.lgb_url
-import slbf
-
+# import slbf
+import slbf1
 
 df_train = pd.read_csv('../dataset/url_train.csv')
 df_test = pd.read_csv('../dataset/url_test.csv')
@@ -51,7 +51,7 @@ print("模型在内存中所占用的大小（字节）:", model_size)
 
 for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
     bloom_size = size - model_size
-    slbf.run(
+    slbf1.run(
         R_sum=bloom_size * 8,
         path='url_results.csv',
         model=bst,

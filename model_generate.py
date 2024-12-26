@@ -75,4 +75,29 @@ def get_model(max_model_memory):
     return bst
 
 
-get_model(20 * 1024)
+def get_model_fix_epoch(max_epoch):
+    params = {
+        'objective': 'binary',
+        'metric': 'binary_logloss',
+        'num_leaves': 31,
+        'learning_rate': 0.05,
+        'feature_fraction': 0.9,
+        'verbose': -1
+    }
+    df_train = pd.read_csv('dataset/url_train.csv')
+    X_train = df_train.drop(columns=['url', 'url_type']).values.astype(np.float32)
+    y_train = df_train['url_type'].values.astype(np.float32)
+    train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
+
+    bst = lgb.Booster(params=params, train_set=train_data)
+    for i in range(max_epoch):
+        bst.update(train_data)
+        print(lib.lgb_url.lgb_get_model_size(bst))
+    model_size = lib.lgb_url.lgb_get_model_size(bst)
+    print("模型在内存中所占用的大小（字节）:", model_size)
+    bst.save_model('best_bst_' + str(max_epoch))
+    return bst
+
+
+# get_model(20 * 1024)
+get_model_fix_epoch(5)

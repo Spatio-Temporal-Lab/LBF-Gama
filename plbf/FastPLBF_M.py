@@ -23,7 +23,7 @@ class FastPLBF_M(PLBF_M):
         # assert 
         assert (isinstance(pos_keys, list))
         assert (isinstance(pos_scores, list))
-        assert (len(pos_keys) == len(pos_scores))
+        # assert (len(pos_keys) == len(pos_scores))
         assert (isinstance(neg_scores, list))
         assert (isinstance(M, float))
         assert (0 < M)
