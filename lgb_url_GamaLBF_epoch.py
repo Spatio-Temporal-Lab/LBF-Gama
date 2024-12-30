@@ -82,9 +82,8 @@ def evaluate_thresholds(prediction_results, y_true, bf_bytes):
     return best_thresh, best_fpr_lbf
 
 
-start_time = time.perf_counter_ns()
-
 for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
+    start_time = time.perf_counter_ns()
     bst = None
     best_bst = None
     best_fpr = 1.0
