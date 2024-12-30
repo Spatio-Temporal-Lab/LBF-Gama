@@ -84,8 +84,8 @@ def lgb_query_url(model, bloom_filter, X_query, y_query, query_urls, threshold, 
 
     binary_predictions = (prediction_results > threshold).astype(int)
 
-    print(prediction_results)
-    print(binary_predictions)
+    # print(prediction_results)
+    # print(binary_predictions)
 
     for i in range(total):
         true_label = y_query[i]

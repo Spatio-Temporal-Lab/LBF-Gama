@@ -44,94 +44,70 @@ n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_typ
 n_false = df_train[df_train['url_type'] == 0].shape[0] + df_test[df_test['url_type'] == 0].shape[0]
 n_test = len(df_test)
 
+
+def evaluate_thresholds(prediction_results, y_true, bf_bytes):
+    sorted_indices = np.argsort(prediction_results)
+    sorted_predictions = prediction_results[sorted_indices]
+    sorted_true = y_true[sorted_indices]
+
+    fp = n_false
+    tp = 0
+    best_thresh = 0
+    best_fpr_lbf = 1.0
+
+    unique_sorted_predictions, idx = np.unique(sorted_predictions, return_index=True)
+
+    n = len(unique_sorted_predictions)
+    for i in range(n):
+        thresh = unique_sorted_predictions[i]
+
+        if i < n - 1:
+            count_1 = np.sum(sorted_true[idx[i]:idx[i + 1]])
+            tp += count_1
+            fp -= idx[i + 1] - idx[i] - count_1
+        else:
+            count_1 = np.sum(sorted_true[idx[i]:n])
+            tp += count_1
+            fp -= n - idx[i] - count_1
+
+        bf_count = tp
+        fpr_bf = lib.bf_util.get_fpr(bf_count / positive_frac, bf_bytes)
+        fpr_lgb = fp / n_false
+        fpr_lbf = fpr_lgb + (1 - fpr_lgb) * fpr_bf
+
+        if fpr_lbf < best_fpr_lbf:
+            best_thresh = thresh
+            best_fpr_lbf = fpr_lbf
+
+    # print(f'best thresh = {best_thresh} and best fpr = {best_fpr_lbf}')
+    return best_thresh, best_fpr_lbf
+
+
 for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
+    epoch_max = 200
+    epoch_each = 1
     bst = None
     model_sizes = []
     best_fpr = 1.0
     best_threshold = 0.5
     best_epoch = 0
+    cur_epoch = 0
+
+    # Train the model up to `epoch_max` rounds, recording model size at each round
 
     start_time = time.perf_counter_ns()
-    evaluate_epoch_count = 5
-    cur_epoch = evaluate_epoch_count
-
-
-    def evaluate_thresholds(prediction_results, y_true, bf_bytes):
-        sorted_indices = np.argsort(prediction_results)
-        sorted_predictions = prediction_results[sorted_indices]
-        sorted_true = y_true[sorted_indices]
-
-        fp = n_false
-        tp = 0
-        best_thresh = 0
-        best_fpr_lbf = 1.0
-
-        unique_sorted_predictions, idx = np.unique(sorted_predictions, return_index=True)
-
-        n = len(unique_sorted_predictions)
-        for i in range(n):
-            thresh = unique_sorted_predictions[i]
-
-            if i < n - 1:
-                count_1 = np.sum(sorted_true[idx[i]:idx[i + 1]])
-                tp += count_1
-                fp -= idx[i + 1] - idx[i] - count_1
-            else:
-                count_1 = np.sum(sorted_true[idx[i]:n])
-                tp += count_1
-                fp -= n - idx[i] - count_1
-
-            bf_count = tp
-            fpr_bf = lib.bf_util.get_fpr(bf_count / positive_frac, bf_bytes)
-            fpr_lgb = fp / n_false
-            fpr_lbf = fpr_lgb + (1 - fpr_lgb) * fpr_bf
-
-            if fpr_lbf < best_fpr_lbf:
-                best_thresh = thresh
-                best_fpr_lbf = fpr_lbf
-
-        # print(f'best thresh = {best_thresh} and best fpr = {best_fpr_lbf}')
-        return best_thresh, best_fpr_lbf
-
-
-    bst = lgb.Booster(params=params, train_set=train_data)
-    for i in range(evaluate_epoch_count):
-        bst.update(train_data)
-        size_temp = lib.lgb_url.lgb_get_model_size(bst)
-        if size_temp > size:
-            break
-        model_sizes.append(size_temp)
-        bf_bytes = size - size_temp
-        sample_pred = bst.predict(X_sample, num_iteration=i+1)
-        best_thresh, best_fpr_lbf = evaluate_thresholds(sample_pred, y_sample, bf_bytes)
-        if best_fpr_lbf < best_fpr:
-            best_threshold = best_thresh
-            best_fpr = best_fpr_lbf
-            best_epoch = i + 1
-
-
-    def fit_linear_function(model_sizes, evaluate_epoch_count):
-        x = np.arange(1, evaluate_epoch_count + 1)
-        y = np.array(model_sizes[:evaluate_epoch_count])
-        coefficients = np.polyfit(x, y, 1)
-        a = coefficients[0]  # 斜率
-        b = coefficients[1]  # 截距
-        return a, b
-
-
-    # model_size = a * epoch + b
-    a, b = fit_linear_function(model_sizes, evaluate_epoch_count)
-    epoch_max = int((size - b) / a)
-    print(epoch_max)
-
+    best_score = float('inf')
     fpr_map = dict()
 
+    bst = lgb.Booster(params=params, train_set=train_data)
 
+
+    # Define the objective function for Bayesian optimization
     def objective(query_epoch):
         global cur_epoch, epoch_max
         query_epoch = int(query_epoch)
         if query_epoch > epoch_max:
-            return -float('inf')
+            return -999
 
         if fpr_map.__contains__(query_epoch):
             return fpr_map[query_epoch]
@@ -142,7 +118,7 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
             size_temp = lib.lgb_url.lgb_get_model_size(bst)
             if size_temp > size:
                 epoch_max = cur_epoch - 1
-                break
+                return -999
             model_sizes.append(size_temp)
 
         model_size = model_sizes[query_epoch - 1]  # Model size at `num_iteration`
@@ -164,9 +140,7 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
 
     # 使用贝叶斯优化来寻找最佳 epoch
     def optimize_epochs():
-        l_bound = evaluate_epoch_count + 1
-        r_bound = epoch_max
-        pbounds = {'query_epoch': (l_bound, r_bound)}  # 设置 epoch 范围
+        pbounds = {'query_epoch': (1, 200)}  # 设置 epoch 范围
         optimizer = BayesianOptimization(
             f=objective,
             pbounds=pbounds,
@@ -174,13 +148,11 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
             random_state=42,
         )
 
-        if r_bound - l_bound > 5:
-            optimizer.maximize(init_points=5, n_iter=min(20, (r_bound - l_bound) // 2))
-        else:
-            optimizer.maximize(init_points=r_bound - l_bound, n_iter=1)
+        optimizer.maximize(init_points=5, n_iter=20)
 
 
     optimize_epochs()
+    # best_bst = lgb.train(params, train_data, num_boost_round=int(best_epoch), valid_sets=[test_data])
     best_bst = lgb.Booster(model_str=bst.model_to_string(num_iteration=best_epoch))
 
     model_size = lib.lgb_url.lgb_get_model_size(best_bst)
