@@ -59,7 +59,18 @@ class SLBF:
         return total_false_positive
 
     def query_single_key(self, key, score):
-        if self.initial_bf.test(key):
+        if self.backup_bf is None:
+            if self.filter_size_b1 > 0:
+                print("construct")
+                self.initial_bf = BloomFilter(len(self.initial_keys),
+                                              self.filter_size_b1 * len(self.initial_keys))
+                self.initial_bf.insert(self.initial_keys.iloc[:, 0])
+            else:
+                self.initial_bf = None
+            self.backup_bf = BloomFilter(len(self.backup_keys), self.filter_size_b2 * len(self.initial_keys))
+            self.backup_bf.insert(self.backup_keys.iloc[:, 0])
+       
+        if self.initial_bf is None or self.initial_bf.test(key):
             if score > self.threshold:
                 return True
             else:
@@ -92,7 +103,7 @@ def train_slbf(filter_size, query_train_set, keys):
         if FP == 0.0:
             print("FP = 0, skip")
             # filter_opt = learned_bloom_filter.main(classifier_score_path, correct_size_filter, other)
-            slbf_opt = SLBF(keys, query_train_set, 0, filter_size, threshold)
+            # slbf_opt = SLBF(keys, query_train_set, 0, filter_size, threshold)
             continue
         if FN == 1.0 or FN == 0.0:
             # print("FP is equal to 1.0, or FN is equal to 0 or 1, skipping threshold")

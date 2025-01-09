@@ -85,7 +85,9 @@ class PLBF_M:
 
         self.backup_bloom_filters = [None for _ in range(self.k + 1)]
         for i in range(1, self.k + 1):
-            if 0 < self.f[i] < 1:
+            if pos_cnt_list[i] == 0:
+                self.backup_bloom_filters[i] = BloomFilter(max_elements=1, error_rate=1 - EPS)
+            elif 0 < self.f[i] < 1:
                 self.backup_bloom_filters[i] = BloomFilter(max_elements=pos_cnt_list[i], error_rate=self.f[i])
                 # self.fpr += self.f[i] * neg_pr_list[i - 1]
             elif self.f[i] == 0:

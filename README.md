@@ -7,19 +7,20 @@ budget
 ### Prerequisites for testing
 - Default Python version used in experiments: 3.10.12
 - Run model_generate.py to generate a fixed-size LightGBM model for method comparison
+- Run dataset/get_sample.py to generate the sampled dataset
 
 ### Run
 - We use URL Dataset as the default for testing
 
-| Method Name       | Python Script Path  |
-| ----------------- | ------------------------ |
-| Gama-SLBF         |  lgb_url_GamaLBF_main.py     |
-| Gama-PLBF         |  lgb_url_GamaPLBF_main.py    |
-| PLBF              |  PLBF/main.py                |
-| Ada-BF            |  ada-bf/main.py              |
-| Sandwich-BF       |  sandwich-lbf/main.py        |
-| LBF               |  lbf/main.py                 |
-| BF                |  bf_url_main.py              |
+| Method Name      | Python Script Path      |
+| ---------------- |-------------------------|
+| Gama-LBF         | lgb_url_GamaLBF_ada.py  |
+| Gama-PLBF        | lgb_url_GamaPLBF_ada.py |
+| PLBF             | PLBF/main.py            |
+| Ada-BF           | ada-bf/main.py          |
+| Sandwich-BF      | sandwich-lbf/main.py    |
+| LBF              | lbf/main.py             |
+| BF               | bf_url_main.py          |
 
 
 ### Datasets
