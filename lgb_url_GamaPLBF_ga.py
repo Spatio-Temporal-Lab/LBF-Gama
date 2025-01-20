@@ -1,10 +1,9 @@
 import copy
 import time
-
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from bayes_opt import BayesianOptimization
+import pygad
 
 import lib.bf_util
 import lib.lgb_url
@@ -56,7 +55,7 @@ n_true = df_train[df_train['url_type'] == 1].shape[0] + df_test[df_test['url_typ
 n_false = df_train[df_train['url_type'] == 0].shape[0] + df_test[df_test['url_type'] == 0].shape[0]
 n_test = len(df_test)
 
-for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
+for size in range(256 * 1024, 1280 * 1024 + 1, 256 * 1024):
     model_sizes = []
     best_fpr = 1.0
     best_plbf = None
@@ -70,16 +69,17 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
 
     fpr_map = dict()
 
-    def objective(query_epoch):
+    # 更新 objective 函数，使其适应遗传算法
+    def objective(epoch):
         global cur_epoch, epoch_max
-        query_epoch = int(query_epoch)
-        if query_epoch > epoch_max:
+        epoch = int(epoch)
+        if epoch > epoch_max:
             return -1.0
 
-        if fpr_map.__contains__(query_epoch):
-            return fpr_map[query_epoch]
+        if fpr_map.__contains__(epoch):
+            return fpr_map[epoch]
 
-        while cur_epoch < query_epoch:
+        while cur_epoch < epoch:
             cur_epoch += 1
             bst.update(train_data)
             size_temp = lib.lgb_url.lgb_get_model_size(bst)
@@ -88,36 +88,48 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
                 return -1.0
             model_sizes.append(size_temp)
 
-        model_size = model_sizes[query_epoch - 1]  # Model size at `num_iteration`
+        model_size = model_sizes[epoch - 1]  # Model size at `num_iteration`
         bf_bytes = size - model_size
 
-        pos_scores = bst.predict(positive_samples, num_iteration=query_epoch).tolist()
-        neg_scores = bst.predict(negative_samples, num_iteration=query_epoch).tolist()
+        pos_scores = bst.predict(positive_samples, num_iteration=epoch).tolist()
+        neg_scores = bst.predict(negative_samples, num_iteration=epoch).tolist()
         plbf = FastPLBF_M(positive_urls_list, pos_scores, neg_scores, bf_bytes * 8.0, 50, 5)
         cur_fpr = plbf.get_fpr()
 
-        fpr_map[query_epoch] = -cur_fpr
+        fpr_map[epoch] = -cur_fpr
         global best_fpr, best_plbf, best_epoch
         if cur_fpr < best_fpr:
             best_plbf = copy.deepcopy(plbf)
             best_fpr = cur_fpr
-            best_epoch = query_epoch
+            best_epoch = epoch
         return -cur_fpr
 
-
-    # 使用贝叶斯优化来寻找最佳 epoch
+    # 使用 pygad 进行优化
     def optimize_epochs():
-        pbounds = {'query_epoch': (2, epoch_max)}  # 设置 epoch 范围
-        optimizer = BayesianOptimization(
-            f=objective,
-            pbounds=pbounds,
-            verbose=0,
-            random_state=42,
-            allow_duplicate_points=True
+        # 更新 fitness_func，接受 3 个参数
+        def fitness_func(ga_instance, solution, solution_idx):
+            epoch = int(solution[0])
+            return objective(epoch)
+
+        # 初始化遗传算法
+        ga = pygad.GA(
+            num_generations=50,  # 代数
+            num_parents_mating=10,  # 每代父母数量
+            sol_per_pop=20,  # 每代个体数量
+            num_genes=1,  # 基因数目（这里只优化 epoch）
+            fitness_func=fitness_func,
+            gene_type=int,  # 基因类型
+            gene_space={'low': 2, 'high': 200},  # 设置优化范围
+            parent_selection_type="tournament",  # 父代选择方式
+            crossover_type="uniform",  # 交叉方式
+            crossover_probability=0.6,  # 交叉概率
+            mutation_type="random",  # 变异方式
+            mutation_probability=0.1,  # 变异概率
+            random_seed=42
         )
 
-        optimizer.maximize(init_points=5, n_iter=20)
-
+        # 运行遗传算法
+        ga.run()
 
     optimize_epochs()
     best_bst = lgb.Booster(model_str=bst.model_to_string(num_iteration=best_epoch))

@@ -1,9 +1,8 @@
-import time
-
+import pygad
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from bayes_opt import BayesianOptimization
+import time
 
 import lib.bf_util
 import lib.lgb_url
@@ -45,6 +44,7 @@ n_false = df_train[df_train['url_type'] == 0].shape[0] + df_test[df_test['url_ty
 n_test = len(df_test)
 
 
+# Evaluate the thresholds
 def evaluate_thresholds(prediction_results, y_true, bf_bytes):
     sorted_indices = np.argsort(prediction_results)
     sorted_predictions = prediction_results[sorted_indices]
@@ -79,11 +79,10 @@ def evaluate_thresholds(prediction_results, y_true, bf_bytes):
             best_thresh = thresh
             best_fpr_lbf = fpr_lbf
 
-    # print(f'best thresh = {best_thresh} and best fpr = {best_fpr_lbf}')
     return best_thresh, best_fpr_lbf
 
 
-for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
+for size in range(256 * 1024, 1280 * 1024 + 1, 256 * 1024):
     epoch_max = 200
     epoch_each = 1
     bst = None
@@ -93,8 +92,6 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
     best_epoch = 0
     cur_epoch = 0
 
-    # Train the model up to `epoch_max` rounds, recording model size at each round
-
     start_time = time.perf_counter_ns()
     best_score = float('inf')
     fpr_map = dict()
@@ -102,7 +99,7 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
     bst = lgb.Booster(params=params, train_set=train_data)
 
 
-    # Define the objective function for Bayesian optimization
+    # The objective function for the optimization
     def objective(query_epoch):
         global cur_epoch, epoch_max
         query_epoch = int(query_epoch)
@@ -135,25 +132,37 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
 
         fpr_map[query_epoch] = -best_fpr_lbf
 
-        return -best_fpr_lbf
+        return -best_fpr_lbf  # Return negative value for minimization
 
 
-    # 使用贝叶斯优化来寻找最佳 epoch
+    # 使用遗传算法优化 epoch
     def optimize_epochs():
-        pbounds = {'query_epoch': (1, 200)}  # 设置 epoch 范围
-        optimizer = BayesianOptimization(
-            f=objective,
-            pbounds=pbounds,
-            verbose=0,
-            random_state=42,
-            allow_duplicate_points=True
+        def fitness_function(ga_instance, solution, solution_idx):
+            query_epoch = solution[0]  # Extract query_epoch from the solution
+            return objective(query_epoch)  # Return the fitness value for this solution
+
+        # 设置遗传算法参数
+        ga = pygad.GA(
+            num_generations=50,  # 代数
+            num_parents_mating=10,  # 每代父母数量
+            sol_per_pop=20,  # 每代个体数量
+            num_genes=1,  # 基因数目（这里只优化 epoch）
+            fitness_func=fitness_function,
+            gene_type=int,  # 基因类型
+            gene_space={'low': 1, 'high': 200},  # 设置优化范围
+            parent_selection_type="tournament",  # 父代选择方式
+            crossover_type="uniform",  # 交叉方式
+            crossover_probability=0.6,  # 交叉概率
+            mutation_type="random",  # 变异方式
+            mutation_probability=0.1,  # 变异概率
+            random_seed=42
         )
 
-        optimizer.maximize(init_points=5, n_iter=20)
+        ga.run()  # 运行遗传算法
 
-
+    # 使用遗传算法优化 epoch
     optimize_epochs()
-    # best_bst = lgb.train(params, train_data, num_boost_round=int(best_epoch), valid_sets=[test_data])
+
     best_bst = lgb.Booster(model_str=bst.model_to_string(num_iteration=best_epoch))
 
     model_size = lib.lgb_url.lgb_get_model_size(best_bst)

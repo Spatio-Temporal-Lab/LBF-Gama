@@ -94,7 +94,9 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
         return best_thresh, best_fpr_lbf
 
 
+    fpr_map = dict()
     bst = lgb.Booster(params=params, train_set=train_data)
+
     for i in range(evaluate_epoch_count):
         bst.update(train_data)
         size_temp = lib.lgb_url.lgb_get_model_size(bst)
@@ -104,11 +106,15 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
         bf_bytes = size - size_temp
         sample_pred = bst.predict(X_sample, num_iteration=i+1)
         best_thresh, best_fpr_lbf = evaluate_thresholds(sample_pred, y_sample, bf_bytes)
+        fpr_map[i + 1] = -best_fpr_lbf
         if best_fpr_lbf < best_fpr:
             best_threshold = best_thresh
             best_fpr = best_fpr_lbf
             best_epoch = i + 1
 
+    historical_data = []
+    for epoch, fpr in fpr_map.items():
+        historical_data.append({'query_epoch': epoch, 'target': fpr})
 
     def fit_linear_function(model_sizes, evaluate_epoch_count):
         x = np.arange(1, evaluate_epoch_count + 1)
@@ -122,16 +128,13 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
     # model_size = a * epoch + b
     a, b = fit_linear_function(model_sizes, evaluate_epoch_count)
     epoch_max = int((size - b) / a)
-    print(epoch_max)
-
-    fpr_map = dict()
 
 
     def objective(query_epoch):
         global cur_epoch, epoch_max
         query_epoch = int(query_epoch)
         if query_epoch > epoch_max:
-            return -float('inf')
+            return -1.0
 
         if fpr_map.__contains__(query_epoch):
             return fpr_map[query_epoch]
@@ -142,7 +145,7 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
             size_temp = lib.lgb_url.lgb_get_model_size(bst)
             if size_temp > size:
                 epoch_max = cur_epoch - 1
-                break
+                return -1.0
             model_sizes.append(size_temp)
 
         model_size = model_sizes[query_epoch - 1]  # Model size at `num_iteration`
@@ -157,14 +160,14 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
             best_fpr = best_fpr_lbf
             best_epoch = query_epoch
 
-        fpr_map[query_epoch] = best_fpr_lbf
+        fpr_map[query_epoch] = -best_fpr_lbf
 
         return -best_fpr_lbf
 
 
     # 使用贝叶斯优化来寻找最佳 epoch
     def optimize_epochs():
-        l_bound = evaluate_epoch_count + 1
+        l_bound = 1
         r_bound = epoch_max
         pbounds = {'query_epoch': (l_bound, r_bound)}  # 设置 epoch 范围
         optimizer = BayesianOptimization(
@@ -172,10 +175,14 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
             pbounds=pbounds,
             verbose=0,
             random_state=42,
+            allow_duplicate_points=True
         )
 
+        for data in historical_data:
+            optimizer.register(params={'query_epoch': data['query_epoch']}, target=data['target'])
+
         if r_bound - l_bound > 5:
-            optimizer.maximize(init_points=5, n_iter=min(20, (r_bound - l_bound) // 2))
+            optimizer.maximize(init_points=5, n_iter=min(15, (r_bound - l_bound) // 2) - 5)
         else:
             optimizer.maximize(init_points=r_bound - l_bound, n_iter=1)
 

@@ -67,6 +67,7 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
     evaluate_epoch_count = 5
     cur_epoch = evaluate_epoch_count
 
+    fpr_map = dict()
     bst = lgb.Booster(params=params, train_set=train_data)
     for i in range(evaluate_epoch_count):
         bst.update(train_data)
@@ -82,12 +83,15 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
         neg_scores = bst.predict(negative_samples).tolist()
         plbf = FastPLBF_M(positive_urls_list, pos_scores, neg_scores, bf_bytes * 8.0, 50, 5)
         cur_fpr = plbf.get_fpr()
-
+        fpr_map[i + 1] = -cur_fpr
         if cur_fpr < best_fpr:
             best_plbf = copy.deepcopy(plbf)
             best_fpr = cur_fpr
             best_epoch = i + 1
 
+    historical_data = []
+    for epoch, fpr in fpr_map.items():
+        historical_data.append({'query_epoch': epoch, 'target': fpr})
 
     def fit_linear_function(model_sizes, evaluate_epoch_count):
         x = np.arange(1, evaluate_epoch_count + 1)
@@ -101,16 +105,13 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
     # model_size = a * epoch + b
     a, b = fit_linear_function(model_sizes, evaluate_epoch_count)
     epoch_max = int((size - b) / a)
-    print(epoch_max)
-
-    fpr_map = dict()
 
 
     def objective(query_epoch):
         global cur_epoch, epoch_max
         query_epoch = int(query_epoch)
         if query_epoch > epoch_max:
-            return -999
+            return -1.0
 
         if fpr_map.__contains__(query_epoch):
             return fpr_map[query_epoch]
@@ -121,7 +122,7 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
             size_temp = lib.lgb_url.lgb_get_model_size(bst)
             if size_temp > size:
                 epoch_max = cur_epoch - 1
-                return -999
+                return -1.0
             model_sizes.append(size_temp)
 
         model_size = model_sizes[query_epoch - 1]  # Model size at `num_iteration`
@@ -133,7 +134,7 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
         neg_scores = bst.predict(negative_samples, num_iteration=query_epoch).tolist()
         plbf = FastPLBF_M(positive_urls_list, pos_scores, neg_scores, bf_bytes * 8.0, 50, 5)
         cur_fpr = plbf.get_fpr()
-        fpr_map[query_epoch] = cur_fpr
+        fpr_map[query_epoch] = -cur_fpr
         global best_fpr, best_plbf, best_epoch
         if cur_fpr < best_fpr:
             best_plbf = copy.deepcopy(plbf)
@@ -144,7 +145,7 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
 
     # 使用贝叶斯优化来寻找最佳 epoch
     def optimize_epochs():
-        l_bound = evaluate_epoch_count + 1
+        l_bound = 2
         r_bound = epoch_max
         pbounds = {'query_epoch': (l_bound, r_bound)}  # 设置 epoch 范围
         optimizer = BayesianOptimization(
@@ -155,8 +156,11 @@ for size in range(64 * 1024, 320 * 1024 + 1, 64 * 1024):
             allow_duplicate_points=True
         )
 
+        for data in historical_data:
+            optimizer.register(params={'query_epoch': data['query_epoch']}, target=data['target'])
+
         if r_bound - l_bound > 5:
-            optimizer.maximize(init_points=5, n_iter=min(20, (r_bound - l_bound) // 2))
+            optimizer.maximize(init_points=5, n_iter=min(20, (r_bound - l_bound) // 2) - 5)
         else:
             optimizer.maximize(init_points=r_bound - l_bound, n_iter=1)
 
