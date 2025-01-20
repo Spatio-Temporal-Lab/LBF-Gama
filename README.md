@@ -21,6 +21,8 @@ budget
 | Sandwich-BF      | sandwich-lbf/main.py    |
 | LBF              | lbf/main.py             |
 | BF               | bf_url_main.py          |
+| LBF+GA           | lgb_url_GamaLBF_ga.py   |
+| PLBF+GA          | lgb_url_GamaPLBF_ga.py  |
 
 
 ### Datasets
